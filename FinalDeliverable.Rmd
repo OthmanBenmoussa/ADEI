@@ -1,0 +1,2477 @@
+---
+title: "Final deliverable"
+author: "Othman Benmoussa & Eloi Cruz"
+date: \today
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  word_document:
+    toc: no
+    toc_depth: '4'
+  html_document:
+    toc: no
+    toc_depth: '4'
+geometry: left=1.9cm,right=1.9cm,top=1.25cm,bottom=1.52cm
+fontsize: 18pt
+subtitle: 'Case study: Used cars'
+classoption: a4paper
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Data Description: 100,000 UK Used Car Data set
+ 
+This data dictionary describes data  (https://www.kaggle.com/adityadesai13/used-car-dataset-ford-and-mercedes) - A sample of 5000 used sold cars has been randomly selected from Mercedes, BMW, Volkwagen and Audi manufacturers. So, firstly you have to combine used car from the 4 manufacturers into 1 dataframe.
+
+The cars with engine size 0 are in fact electric cars, nevertheless Mercedes C class, and other given cars are not electric cars,so data imputation is required. 
+
+
+## Variables description
+
+  * manufacturer: represents the company that manufactures the car (Factor: Audi, BMW, Mercedes or Volkswagen)
+  * model: the exact model of the car represented	Car
+  * year: year of registration
+  * price:	price in £
+  * transmission:	type of gearbox
+  * mileage:	distance already used by the car
+  * fuelType:	fuel consumed by the car engine
+  * tax:	road tax
+  * mpg:	Consumption in miles per gallon   
+  * engineSize:	size in liters
+
+# Environment preparation
+## Load Required Packages: to be increased over the course
+
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+# Load Required Packages: to be increased over the course
+options(contrasts=c("contr.treatment","contr.treatment"))
+
+requiredPackages <- c("effects","FactoMineR","car","missMDA","mvoutlier","chemometrics", "factoextra","RColorBrewer","ggplot2","dplyr","ggmap","ggthemes","knitr")
+install.packages("moments",repos = "http://cran.us.r-project.org")
+#use this function to check if each package is on the local machine
+#if a package is installed, it will be loaded
+#if any are not, the missing package(s) will be installed and loaded
+package.check <- lapply(requiredPackages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+
+#verify they are loaded
+search()
+
+
+```
+
+## Cretae dataset
+
+A random sample of 5000 cars is obtained from the original datasets audi, bmw,mercedes and VW. This will be the start point of the project and the data that we will be analized.
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+# Clear plots
+if(!is.null(dev.list())) dev.off()
+
+# Clean workspace
+rm(list=ls())
+
+setwd("/Users/othmanbenmoussa/Desktop/Final deliverable")
+
+#setwd("C:/Users/Eloi/Documents/ADEI/ADEI/Final deliverable") #Set working directory
+
+# Lecture of DataFrames:
+df1 <- read.table("audi.csv",header=T, sep=",")
+df1$manufacturer <- "Audi"
+df2 <- read.table("bmw.csv",header=T, sep=",")
+df2$manufacturer <- "BMW"
+df3 <- read.table("merc.csv",header=T, sep=",")
+df3$manufacturer <- "Mercedes"
+df4 <- read.table("vw.csv",header=T, sep=",")
+df4$manufacturer <- "VW"
+
+# Union by row:
+df <- rbind(df1,df2,df3,df4)
+
+### Use birthday of 1 member of the group as random seed:
+set.seed(11041998)
+# Random selection of x registers:
+sam<-as.vector(sort(sample(1:nrow(df),5000)))
+df<-df[sam,]  # Subset of rows _ It will be my sample
+rownames(df) <- 1:nrow(df)
+
+#Remove original datasets
+rm(df1)
+rm(df2)
+rm(df3)
+rm(df4)
+
+#Keep information in an .Rdata file:
+save(list=c("df"),file="FinalDeliverablePre.RData")
+```
+
+## Definition of useful functions
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+
+# Mout <- which((df$tax < var_out$mouti)|(df$tax > var_out$mouts))
+
+# Some useful functions
+calcQ <- function(x) {
+  s.x <- summary(x)
+  iqr<-s.x[5]-s.x[2]
+  list(souti=s.x[2]-3*iqr, mouti=s.x[2]-1.5*iqr, min=s.x[1], q1=s.x[2], q2=s.x[3], 
+       q3=s.x[5], max=s.x[6], mouts=s.x[5]+1.5*iqr, souts=s.x[5]+3*iqr ) }
+
+countNA <- function(x) {
+  mis_x <- NULL
+  for (j in 1:ncol(x)) {mis_x[j] <- sum(is.na(x[,j])) }
+  mis_x <- as.data.frame(mis_x)
+  rownames(mis_x) <- names(x)
+  mis_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {mis_i <- mis_i + as.numeric(is.na(x[,j])) }
+  list(mis_col=mis_x,mis_ind=mis_i) }
+
+countX <- function(x,X) {
+  n_x <- NULL
+  for (j in 1:ncol(x)) {n_x[j] <- sum(x[,j]==X) }
+  n_x <- as.data.frame(n_x)
+  rownames(n_x) <- names(x)
+  nx_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {nx_i <- nx_i + as.numeric(x[,j]==X) }
+  list(nx_col=n_x,nx_ind=nx_i) }
+
+# CalcQ function application over price variable
+list_price <- calcQ(df$price)
+```
+
+# Univariate Descriptive Analysis,  Factor, level coding
+
+First of all we will start with the univariate descriptive analysis. This means that we will analyse all the variables one by one to understand the dataset in the most accurate way. In the next figures we can see the original data. We will analyse and describe it in more detail in the next sections. Then we will codify properly factors and remove non-informative variables
+
+Data created summary:
+
+```{r}
+summary(df)
+```
+
+## Description of the non numerical variables
+
+There are 4 non numerical variables that we will convert into factors: model, transmission, fueltype and manufacturer.
+
+### Model
+
+```{r}
+df$model<-factor(paste0(df$manufacturer,"-",df$model))
+```
+We can see that the dataset contains cars of 89 different models from the 4 different manufacturers.
+
+### Transmission
+```{r}
+df$transmission <- factor( df$transmission, levels = c("Manual","Semi-Auto","Automatic"),labels = paste0("f.Trans-",c("Manual","SemiAuto","Automatic")))
+# Pie
+piepercent<-round(100*(table(df$transmission)/nrow(df)),dig=2); piepercent
+pie(table(df$transmission),col=heat.colors(3),labels=paste(piepercent,"%"))
+legend("topright", levels(df$transmission), cex = 0.8, fill = heat.colors(3))
+#table
+table(df$transmission)
+```
+We can see that the sample contains more or less the same number of Manual and semi-auto individuals. Otherwise the number of automatic cars is a little lower.
+
+### Fuel type
+```{r}
+df$fuelType <- factor(df$fuelType)
+df$fuelType <- factor( df$fuelType, levels = c("Diesel","Petrol","Hybrid"), labels = paste0("f.Fuel-",c("Diesel","Petrol","Hybrid")))
+# Pie
+piepercent<-round(100*(table(df$fuelType)/nrow(df)),dig=2); piepercent
+pie(table(df$fuelType),col=heat.colors(3),labels=paste(piepercent,"%"))
+legend("topright", levels(df$fuelType), cex = 0.8, fill = heat.colors(3))
+#Table
+table(df$fuelType)
+```
+In that case we can see that most common fuel type for the cars of the dataset is Diesel (57%). The number of cars with a Petrol engine is representative too (42%). Otherwise the number of cars with a Hybrid engine is very little (2%).
+
+### Manufacturer
+
+```{r}
+df$manufacturer <- factor(paste0("f.Man-",df$manufacturer))
+# Pie
+piepercent<-round(100*(table(df$manufacturer)/nrow(df)),dig=2); piepercent
+pie(table(df$manufacturer),col=heat.colors(5),labels=paste(piepercent,"%"))
+legend("topright", levels(df$manufacturer), cex = 0.8, fill = heat.colors(5))
+#Table
+table(df$fuelType)
+```
+
+As we choose the cars randomly the repartition between manufacturers is very equal. In one hand, The manufacturer that has less rows is audi with a 20% of the samples. In the other hand, the manufacturer that contains most rows is VW with a 30% of the samples. 
+
+### Binary factor is Audi: Yes, No
+
+We now create the binary target for the cars that are of the audi manufacturer for the further analysis.
+
+```{r}
+df$Audi<-ifelse(df$manufacturer == "f.Man-Audi",1,0)
+df$Audi<-factor(df$Audi,labels=c("No","Yes"))
+summary(df$Audi)
+# Pie
+piepercent<-round(100*(table(df$Audi)/nrow(df)),dig=2); piepercent
+pie(table(df$Audi),col=heat.colors(2),labels=paste(piepercent,"%"))
+legend("topright", levels(df$Audi), cex = 0.8, fill = heat.colors(2))
+
+```
+
+
+## Description of numeric variables that represent qualitative concepts
+There are 4 Original numeric variables corresponding to qualitative concepts. We will describe them but we will not factorize them yet because first we want to treat all the errors, and out layers that they contain.
+
+### Enigine Size
+
+
+```{r}
+summary(df$engineSize)
+barplot(table(df$engineSize), main="Engine size")
+```
+
+In first place we can find engine size. It is a numerical variable that represents a finite number of different engine sizes. For our analysis it is not very interesting to know exact size of an engine. For this reason we will group all size in 3 different categories. Category "Petit" = (0, 2), "Mitjà" = [2, 3) and "Gran" [3, infinite]. We will do this factorized process one we have treated errors and out liers
+
+In the plot we can see that a big number of values are concentrated in the size 2. This will affect our final factorization because the group that contains this value will be much bigger than the others.
+
+
+### Year of purchase / years sell
+
+```{r}
+summary(df$year)
+boxplot(df$year)
+```
+
+
+The variable year of purchase is discrete because only contains 21 different values. For this reason we will group it in groups because the information that it represents is qualitative. We can see that the numbers of cars that appear before the year 2013 doesn't is very significant so we will group all of them in only one category. The variable years sell has the objective to classification the cars in a more general way. "Molt nou" < 3, "Semi nou" <=6, "Semi vell" <=10 o "Vell" if they are older than 10 year since the year 2020.
+
+By the way we will do the classification after we treat the outliers. 
+
+A new variable derived from this one called years_sold will be created too.
+
+
+## Description of numeric variables that represent cuantitative concepts
+
+In this section we will descrive numeric variables that represent directly cuantitative concepts but we will not factorize them until the next section after we have treated errors and outliers. 
+
+### Price
+```{r}
+summary(df$price)
+quantile(df$price,seq(0,1,0.25),na.rm=TRUE)
+barplot(table(factor(cut(df$price/1000,breaks=c(0,15,20,26, 70, 136), include.lowest = F ))))
+```
+
+Price is a numeric variable that has a lot of different values. We can see that the mean of the price is 21459 and that the prices fluctuate between 899 and 135124. The lowest values don't show us extreme cases that may be considered outliers or errors but the boxplot shows that there exist some outliers for the highest valued cars (90+) so we will treat them before factorizing the variable. 
+
+
+### Mileage
+```{r}
+summary(df$mileage)
+quantile(df$mileage,seq(0,1,0.25),na.rm=TRUE)
+barplot(table(factor(cut(df$mileage/1000,breaks=c(0,0.01, 6,16,34,90, max(df$mileage/1000)), include.lowest = F ))))
+```
+All values in the barplot are divided by 1000 to make them more legible. We will classify all the cars that has more than 10 km and less than 90. We will consider this two groups as errors and outliers. We can see that nearly 50% of the cars have less than 16.000km and the majority of them less than 90.000km.
+
+
+### Tax
+```{r}
+
+summary(df$tax)
+boxplot(df$tax)$stats[c(1, 5), ]
+sort(df$tax)[194]
+quantile(df$tax,seq(0,1,0.25),na.rm=TRUE)
+barplot(table(factor(cut(df$tax,breaks=c(0,19, 144.9,150.1, 570), include.lowest = T ))))
+ 
+```
+
+We see that the intervals are not equally distributed for the tax variable, because there is a concentration of the values at the 150 value.
+
+We consider that values under 20 for the variable tax are errors because are too low. By the way the only value in this interval is the 0. The next value after it is number 20.
+
+### mpg
+```{r}
+summary(df$mpg)
+quantile(df$mpg,seq(0,1,0.25),na.rm=TRUE)
+barplot(table(factor(cut(df$mpg,breaks=c(0, 15, 44.8,53.3,61.4, 120, 470.8), include.lowest = T ))))
+```
+We can see that exists an equal distribution of samples between the frour groups. The problem is that the are some cars that have too high consume values  and others very low consume values. We will analyse this two cases in more detail in the next section.
+
+# Data quality report
+
+
+```{r}
+#######################################################
+iouts<-rep(0,nrow(df))  # rows - cars
+jouts<-rep(0,ncol(df))  # columns - variables
+######################################################
+```
+
+## Missing values per variable
+
+```{r}
+
+#######################################################
+imis<-rep(0,nrow(df))  # rows - cars
+jmis<-rep(0,ncol(df))  # columns - variables
+######################################################
+mis1<-countNA(df) # Counts the errors for each variable
+#mis1$mis_ind # Number of missings for the current set of cars
+mis1$mis_col # Number of missings for the current set of variables
+
+```
+
+Doing the analysis of the missing values per variable, we can see that the one that contains missing values is the fuelType one that has 16.
+
+## Errors per variable
+
+```{r}
+#######################################################
+ierrs<-rep(0,nrow(df))  # rows - cars
+jerrs<-rep(0,ncol(df))  # columns - variables
+######################################################
+```
+
+
+### EngineSize == 0
+
+We see that there are some cars that have an engine size of 0. These are errors and we will transform them into NAs to avoid using them in our tasks. 
+
+
+```{r}
+sel<-which(df$engineSize==0)# captures the number of the row
+
+ierrs[sel]<-ierrs[sel]+1
+jerrs[9]<-length(sel) #jerrs gives us the total number of errors in the column
+df[sel,"engineSize"]<- NA
+#We replaced 0 by NA in order to avoid taking into account these values
+jerrs
+```
+### Tax == 0
+
+Cars which pay 0 in Tax are also viewed as errors
+```{r}
+sel<-which(df$tax==0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[7]<-length(sel)
+df[sel,"tax"]<- NA
+jerrs
+```
+
+There are 193 cars that didn't pay taxes, which is not normal
+
+### Mileage
+
+We will also add as errors the cars that are bought for more than 1 year and have recorded less than 5000km and the cars that has 10km or less recorded.
+
+```{r}
+sel<-which((df$mileage<=5000 & df$year<2019)|(df$mileage<=10))
+ierrs[sel]<-ierrs[sel]+1
+jerrs[5]<-length(sel)
+df[sel,"mileage"]<- NA
+jerrs
+```
+
+### Milles per gallon
+
+The consumption of 15 mpg equals to a consumption of aprox 16 liters every 100km. Which now a days is a value too high for comercial vehicles. We consider that all values under 16 are errors. 
+
+We have looked for non hybrid cars with big size engines and very low consumption values (less than 4.7l/100km). We thought that if there were cars with this properties they will be errors but as we can see there not exist samples of this type. 
+
+```{r}
+df[which(df[,"mpg"]<15),]
+count(df[which((df[,"mpg"]>50)&((df[,"fuelType"]!="f.Fuel-Hybrid"))&(df[,"engineSize"]>3)),])
+```
+As we can see there are 4 vehicles with so high values and what is more the have relatively small engineSizes(mitjà or small). Looking for the real consumption values in the internet we have confirmed that these are errors. 
+
+```{r}
+sel<-which(df$mpg<=15)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[8]<-length(sel)
+df[sel,"mpg"]<- NA
+jerrs
+```
+
+### Total errors
+
+As a summary we can se that the variable engine size has 20 errors corresponding to all the engines that has a size of 0. The variable tax contains 193 errors that correspond to the values 0 or what is the same, the ones that doesn't pay taxes. There are 101 cars that have less than 10km or that have been in circulation for more than one year and have less than 5000km. Finally there are 4 cars with extremely high consume values.
+
+```{r}
+barplot(table(ierrs),main="Errors per individual Barplot",col = "Blue")
+```
+The majority of the cars don't have more than an error
+
+
+```{r}
+barplot(jerrs,main="Variables with errors",col = "DarkSlateBlue")
+jerrs
+```
+
+
+## Outliers per variable
+
+To end with the analysis of the quality of the different variables, we will check the outliers for all of them.
+
+### Price
+
+```{r}
+
+# We will exclude the cars whose price is more than 70 000
+var_out<-calcQ(df$price)
+llout<-which(df$price>70000)
+length(llout)
+iouts[llout]<-iouts[llout]+1
+jouts[3]<-length(llout)
+df[llout,"price"]<- NA
+jouts
+```
+We consider as outlyers all cars that are more expensive than 70000 as we have explained in the first section.
+
+### Year
+
+```{r}
+barplot(table(df$year),legend.text = "Year purchase repartition between the cars")
+```
+We see that there are practically no cars purchased before 2013, we will consider the cars bought before as outliers and make them NA. HAs we can see the variable jouts shows us that there are 100 cars affected by this decision.
+
+```{r}
+set<-which(df$year<2013)
+length(set)
+iouts[set]<-iouts[set]+1
+jouts[2]<-length(set)
+df[set,"year"]<- NA
+pie(table(df$year))
+jouts
+```
+
+### mpg
+
+```{r}
+df[which((df[,"mpg"]>100)&((df[,"fuelType"]!="f.Fuel-Hybrid"))&(df[,"engineSize"]>3)),]
+```
+We see that there are some unusual values (those with mpg>100), we thought that they were out liers, but we have discovered that they correspond to the cars with hybrid engines. They might seem outliers because there are few samples with this engine type.
+
+### mileage
+
+```{r}
+boxplot(df$mileage)
+```
+We see also that the cars with more than 150 000 km are minoritary, we will consider them as outliers 
+
+```{r}
+set<-which(df$mileage>150000)
+length(set)
+iouts[set]<-iouts[set]+1
+jouts[5]<-length(set)
+df[set,"mileage"]<- NA
+jouts
+
+```
+
+
+### Total outliers
+
+Table of Outliers per individual Barplot
+```{r}
+barplot(table(iouts),main="Outliers per individual Barplot",col = "DarkSlateBlue")
+```
+
+```{r}
+jouts
+barplot(jouts,main="Outliers per column Barplot",col = "DarkSlateBlue")
+```
+As we can see there are three variables with outliers. Rows with year<2013 (100), price > 70000 (21) and milleage >150000. 
+
+## Errors, missings and oultiers summary
+
+### Number of missing values of each variable (with ranking)
+```{r}
+missings_ranking_sortlist <- sort.list(mis1$mis_col, decreasing = TRUE)
+for (j in missings_ranking_sortlist) {
+  print(paste(names(df)[j], " : ", mis1$mis_col$mis_x[j]))
+}
+```
+
+### Number of outliers per each variable
+```{r}
+errors_ranking_sortlist <- sort.list(jouts, decreasing = TRUE)
+for (j in errors_ranking_sortlist) {
+  if(!is.na(names(df)[j])) print(paste(names(df)[j], " : ", jouts[j]))
+}
+```
+### Number of errors per each variable
+
+```{r}
+errors_ranking_sortlist <- sort.list(jerrs, decreasing = TRUE)
+for (j in errors_ranking_sortlist) {
+  if(!is.na(names(df)[j])) print(paste(names(df)[j], " : ", jerrs[j]))
+}
+```
+
+### Total Errors, outliers and NA per individual
+```{r}
+mis <- 0; out <- 0; err <- 0;
+for (m in mis1$mis_ind) {mis <- mis + m} 
+for (o in iouts) {out  <- out + o}
+for (e in ierrs) {err <- err + e}
+
+mis
+out
+err
+```
+
+### Creating a new variable total with the total missing, outliers and error values for each individual
+```{r}
+
+countNA_row <- function(x) {
+  mis_i <- rep(0,ncol(x))
+  for (j in 1:nrow(x)) {mis_i[j]<- sum(is.na(x[j,])) }
+  mis_i}
+
+mis1<-countNA_row(df)
+#mis1=countNA_row(df)[, 1]
+df$total<-factor(mis1)
+
+```
+As all the previous errors, outliers and initial missing values have been converted to missing values by addition, we will just count the number of missing values in each row in order to find the total number of (errors,outliers and initial missing values).
+We will then create the factor total that indicates this number
+
+```{r}
+mis1<-countNA_row(df)
+df$total<-mis1
+```
+
+We consequently added the factor total that indicates the amount of errors, outliers and missing values 
+
+```{r}
+#vars_quantitatives<-names(df)[c(1:,4:7,18)]
+data<- df[,c(2,3,5,7,8, 12)]
+res <- cor(data, use = "complete.obs")
+```
+
+
+
+```{r}
+library(corrplot)
+corrplot(res)
+```
+There is a high correlation between, mileage and year, year and price.
+
+There is practically no correlation between mpg and mileage, tax and mileage.
+
+# Data Imputation 
+
+Impute realistic values to all NA values in the dataset (errors + outliers). In this section we will impute values for all 6 numeric variables. Year and engineSize are the qualitative ones and the other four are the ones that represent quantitative data. 
+
+Remove the samples that has NA as price because it is the numeric target variable
+
+```{r}
+is.integer0 <- function(x)
+{
+  is.integer(x) && length(x) == 0L
+}
+sel <- which(is.na( df$price ))
+if (!is.integer0(sel)){
+  df <- df[-sel,]
+}
+```
+
+
+```{r}
+library(missMDA)
+```
+
+```{r}
+#selection of numeric values
+vars<-names(df)[c(2,3,5, 7, 8, 9)]
+res.imputation<-imputePCA(df[,vars],ncp=5)
+summary(res.imputation$completeObs)
+```
+Now we have to correct all the errors that have been created by the procedure. 
+
+```{r}
+df[,"year"]<-res.imputation$completeObs[,"year"]
+df[,"price"]<-res.imputation$completeObs[,"price"]
+df[,"mileage"]<-res.imputation$completeObs[,"mileage"]
+df[,"tax"]<-res.imputation$completeObs[,"tax"]
+df[,"mpg"]<-res.imputation$completeObs[,"mpg"]
+df[,"engineSize"]<-res.imputation$completeObs[,"engineSize"]
+```
+
+
+## year
+```{r}
+ll<-which(res.imputation$completeObs[,"year"] < 2013)
+res.imputation$completeObs[ll,"year"] <- 2013
+```
+
+## mileage
+```{r}
+ll<-which(res.imputation$completeObs[,"mileage"] <= 0)
+res.imputation$completeObs[ll,"mileage"] <- 11
+```
+
+## tax
+```{r}
+ll<-which(res.imputation$completeObs[,"tax"] <= 0)
+res.imputation$completeObs[ll,"tax"] <- 20
+```
+
+## Aplly changes to dataset
+```{r}
+df[,vars] <- res.imputation$completeObs
+summary(df)
+
+```
+
+# Discretization
+
+## Numeric variables qualitative concepts
+There are 4 Original numeric variables corresponding to qualitative concepts that will be converted to factors.
+
+### Enigine Size
+
+```{r}
+table(df$engineSize)
+
+df[which(df$engineSize>0 & df$engineSize < 2), "engineSize"] <- 1
+df[which(df$engineSize>=2 & df$engineSize < 3), "engineSize"]<- 2
+df[which(df$engineSize>=3), "engineSize"]<- 3
+df$engineSize<-factor(df$engineSize,labels=c("Petit","Mitjà","Gran"))
+
+barplot(table(df$engineSize), main="Factorized engine size")
+summary(df$engineSize)
+
+```
+
+In first place we can find engine size. It is a numerical variable that represents a finite number of different engine sizes. For our analysis it is not very interesting to know exact size of an engine. For this reason we will group all size in 3 different categories. Category "Petit" = (0, 2), "Mitjà" = [2, 3) and "Gran" [3, infinite]
+
+We can see that the barplot of the factorized variable shows that the group "Mitjà" groups a big portion of the total number of cars. This is because the value "2" of the original variable, that is represented in the grup "Mitjà", groups on its own a total of 2116 cars.
+
+
+### Year of purchase
+
+
+The variable year of purchase is discrete because only contains 21 different values. For this reason we will factorize it because the information that it represents is qualitative. We can see that the numbers of cars that appear before the year 2013 doesn't is very significant so we will group all of them in only one category. The variable years sell has the objectivo to classificate the cars in a more general way. "Molt nou" < 3, "Semi nou" <=6, "Vell" <=10.
+
+
+```{r}
+
+summary(df$year)
+
+str(df$year)
+
+df$years_sell <-  as.integer(2020 - df$year)
+df[which(df$years_sell < 3), "years_sell2"] <- 1
+df[which(df$years_sell >= 3 & df$years_sell <= 6), "years_sell2"] <- 2
+df[which(df$years_sell > 6 & df$years_sell <= 10), "years_sell2"] <- 3
+df[which(df$years_sell > 10), "years_sell2"] <- 4
+df$years_sell<-factor(df$years_sell2,labels=c("Molt nou","Semi nou","Vell"))
+
+df[which(df$year<2013),"year"] <- "2012 or before"
+df$year <- factor(df$year)
+
+summary(df$years_sell)
+barplot(table(df$years_sell))
+
+```
+
+
+## Discretization of numeric variables cuantitative concepts
+Original numeric variables corresponding to real quantitative concepts are kept as numeric but additional factors should also be created as a discretization of each numeric variable.
+
+### Price
+```{r}
+
+summary(df$price)
+Boxplot(df$price)
+
+quantile(df$price,seq(0,1,0.25),na.rm=TRUE)
+
+df$aux<-factor(cut(df$price,breaks=c(min(df$price),13995,19498,2690, max(df$price)),include.lowest = T ))
+summary(df$aux)
+tapply(df$price,df$aux,median)
+df$f.price<-factor(cut(df$price/1000,breaks=c(0,15,20,26, 90)),labels=paste("Segmento - ",c("D","C","B","A")))
+table(df$f.price,useNA="always")
+barplot(table(df$f.price))
+```
+
+The discretization of the price value has been done in four groups beeing the "Segmento D" the cheapest ones and the "Segmento A" the most expensive ones. 
+
+
+### Mileage
+```{r}
+
+summary(df$mileage)
+Boxplot(df$mileage)
+
+quantile(df$mileage,seq(0,1,0.25),na.rm=TRUE)
+
+df$aux<-factor(cut(df$mileage,breaks=c(0,5891,16908,33981,323000),include.lowest = T ))
+summary(df$aux) # We want to know the number of cars in each interval
+tapply(df$mileage,df$aux,median) #gives us the median value of the mileage of the car in the four intervals
+df$f.miles<-factor(cut(df$mileage/1000,breaks=c(0,6,17,34, 323),include.lowest = T )) # We divide by 1000 for an easier use
+levels(df$f.miles)<-paste("f.miles-",levels(df$f.miles),sep="")
+table(df$f.miles,useNA="always")
+barplot(table(df$f.miles))
+```
+
+### Tax
+```{r}
+summary(df$tax)
+Boxplot(df$tax)
+
+sort(df$tax)[194] 
+sort(df$tax)[194]     
+
+quantile(df$tax,seq(0,1,0.25),na.rm=TRUE)
+quantile(df$tax,seq(0,1,0.1),na.rm=TRUE)
+
+
+df$f.tax<-factor(cut(df$tax,breaks=c(0, 1,144.9,150.1, 570),include.lowest = T ))
+summary(df$f.tax) # We want to know the number of cars in each interval
+tapply(df$tax,df$f.tax,median)#gives us the median value of the tax of the car in the four intervals
+levels(df$f.tax)<-paste("f.tax-",levels(df$f.tax),sep="")
+table(df$f.tax,useNA="always")
+barplot(table(df$f.tax))
+
+```
+
+We see that the intervals are not equally distributed for the tax variable, because there is a concentration of the values at the 150 value.
+
+We consider that values under 1 for the variable tax are errors because are too low. By the way the only value in this interval is the 0. The next value after it is number 20.
+
+### mpg
+```{r}
+
+
+summary(df$mpg)
+Boxplot(df$mpg)
+
+quantile(df$mpg,seq(0,1,0.25),na.rm=TRUE)
+quantile(df$mpg,seq(0,1,0.1),na.rm=TRUE)
+
+
+df$mpg_d<-factor(cut(df$mpg,breaks=c(0,44.8,53.3,61.4 , 470.8),include.lowest = T ))
+summary(df$mpg_d) # We want to know the number of cars in each interval
+tapply(df$mpg,df$mpg_d,median)#gives us the median value of the tax of the car in the four intervals
+levels(df$mpg_d)<-paste("mpg_d-",levels(df$mpg_d),sep="")
+table(df$mpg_d,useNA="always")
+barplot(table(df$mpg_d))
+```
+
+# Profiling
+
+##Target price
+
+```{r}
+library(FactoMineR)
+summary(df$price)
+res.condes<-condes(df,3)
+```
+
+### Numeric variables
+```{r}
+res.condes$quanti  # Global association to numeric variables
+```
+We can see a relation between the price and mileage as the p-value is greater than 0.01, and the correlation is thus greater in absolute value than 0.5.
+We can see a relation between the price and years_sell as the p-value is greater than 0.01, and the correlation is thus greater in absolute value than 0.5.
+
+### Qualitative variables
+```{r}
+res.condes$quali # Global association to factors
+```
+We can see a relation between the price and model as the p-value is greater than 0.01, and the correlation is thus greater in absolute value than 0.5.
+We can see a relation between the price and year as the p-value is greater than 0.01, and the correlation is thus greater in absolute value than 0.5.
+
+##Target Audi
+
+```{r}
+library(FactoMineR)
+summary(df$Audi)
+# The "variable to describe cannot have NA ###################################
+res.catdes<-catdes(df,11, proba = 0.50)
+```
+
+### Numeric variables
+```{r}
+res.catdes$quanti.var  # Global association to numeric variables
+```
+We can see a relation between the Audi variable and tax as the p-value is greater than 0.01.
+We can see a relation between the Audi variable and price as the p-value is greater than 0.01.
+
+### Qualitative variables
+```{r}
+res.catdes$test.chi2 # Global association to factors
+```
+We can see a relation between the Audi variable and manufacturer as the p-value is greater than 0.01.
+We can see a relation between the Audi variable and model as the p-value is greater than 0.01.
+We can see a relation between the Audi variable and engineSize as the p-value is greater than 0.01.
+
+```{r}
+names(df)
+```
+
+
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+#Save data
+vars_con<-names(df)[c(3,5,7,8 )]
+vars_dis<-names(df)[c(1,2, 4, 6, 9, 10, 13, 15, 16,17,18)]
+var_mout <- names(df)[c(18)]
+vars_res<-names(df)[c(3, 17)]
+save( list = c( "vars_con","vars_dis", "vars_res", "var_mout", "df"), file = "Output-Othman-ELoi.RData" )
+df
+```
+
+
+
+```{r}
+df[,vars_con]
+prin_comp <- prcomp(df[,vars_con], scale. = T)
+res.pca <- PCA(df[,c(vars_con,vars_dis)], scale. = T,quali.sup=c(5:15))
+
+#No tenemos a una columna de multivariant outliers
+```
+
+
+
+
+
+
+How many axes we have to interpret according to Kaiser?
+```{r}
+round(res.pca$eig,2)
+```
+
+We will use two first dimensions as the cumulative percentage surpasses 60%
+
+Elbow Rule
+```{r}
+barplot(res.pca$eig[,1],main="Eigen Values",names.arg=paste("dim",1:nrow(res.pca$eig)))
+```
+
+```{r}
+fviz_screeplot(res.pca, addlabels=TRUE, ylim=c(0,50), barfill="darkslateblue", barcolor="darkslateblue",linecolor="skyblue1")
+```
+According to Elbow we coud stop at dimension 2 or 3 as the difference is approximately the same
+
+### II.  Individuals point of view
+```{r}
+### Are they any individuals "too contributive"       ##############
+round(cbind(res.pca$ind$coord[,1:2],res.pca$ind$cos2[,1:2],res.pca$ind$contrib[,1:2]),2)
+```
+
+
+```{r}
+# coord: coordinates of indiviudals/variables with respect to the axes
+# cos2: Quality of representation by each of the axes
+# contribution: How much have they contributed to the creation/estimation of an axes. 
+
+# To better understand the axes through the extreme individuals
+inds <- res.pca$ind$coord
+inds <- as.data.frame(inds)
+rang<-inds[order(inds$Dim.1, decreasing = TRUE),] #Most important indiviudals wrt dim 1
+rang
+
+rang[1,]
+res.pca$ind$coord["807", 1]  # Access using row names: invariant
+res.pca$ind$coord[row.names(rang)[1:10],1]  # Access using row names: invariant
+res.pca$ind$coord[843,1] # Access using row number in current data.frame
+
+```
+
+```{r}
+fviz_pca_ind(res.pca, col.ind="contrib", geom = "point") #+scale_color_gradient2(low="darkslateblue", mid=“white", high="red", midpoint=0.40)
+ 
+```
+
+We can see that there are individuals that are too contributive, especially at the extremes. Let's understand them better.
+
+Extreme Individuals
+
+```{r}
+rang<-order(res.pca$ind$coord[,1])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+
+In dimension 2
+
+```{r}
+rang<-order(res.pca$ind$coord[,2])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+Detection of multivariant outliers and influent data.
+
+Since we’ve commented before that we don’t consider multivariate outliers, no action should be taken here.
+
+Interpreting the axes: Variables point of view coordinates, quality of representation, contribution of the variables
+
+```{r}
+res.des <- dimdesc(res.pca)
+```
+
+```{r}
+ fviz_contrib(res.pca, fill = "darkslateblue" , color = "darkslateblue", choice = "var", axes = 1, top = 5)
+```
+
+```{r}
+fviz_contrib(res.pca, fill = "darkslateblue", color = "darkslateblue", choice = "var", axes = 2, top = 5)
+```
+
+
+Hierarchial Clustering
+
+
+```{r}
+res.hcpc <- HCPC(res.pca,nb.clust = 4, order = TRUE)
+#res.hcpc <- HCPC(res.pca,nb.clust = 2, order = TRUE)
+```
+
+```{r}
+plot(res.hcpc, choice = "3D.map")
+```
+
+
+```{r}
+table(res.hcpc$data.clust$clust)
+```
+
+We see that the First cluster doesn't represent many vehicles, we will thus reduce our study to three clusters
+
+```{r}
+barplot(table(res.hcpc$data.clust$clust), col="darkslateblue", border="darkslateblue", main="[hierarchical] #observations/cluster")
+```
+
+for model and year: df>90. The distributions follos a normal low
+We can see that price,miles and tax constitute the main caracterizers of the clusters
+
+Descirption of the clusters:
+```{r}
+res.hcpc$desc.var$quanti
+```
+We can see that the first cluster contains cars with a huge mpg and an above average tax pay, we can thus think of the Hybrid cars such as the BMW i3.
+
+The second cluster represents cars that are cheap, have a low tax pay, an above average mpg and an the biggest mileage. These are the second most common cars as they used to be effective but are turning old.
+
+The third cluster represents the most cars as the mileage and mpg are approximately near the average, the car seem to be of a diesel nature as the tax is high
+
+The fourth cluster represents new cars that are pretty expensive.
+
+
+K-means Classification
+
+Description of clusters
+
+```{r}
+#res.pca <- PCA(df[,c(1:10,12,13,15:17,19,21,22,25,27)],quanti.sup=c(3:6,13),quali.sup=c(1,2,14 :16,19:20),ncp=5,graph=FALSE)
+ppcc<-res.pca$ind$coord[,1:3] # 3 components principals (kaiser)
+dim(ppcc)
+```
+
+```{r}
+library("factoextra")
+fviz_nbclust(ppcc, kmeans, method = "gap_stat")
+```
+
+```{r}
+dist<-dist(ppcc) # coordenates are real - Euclidean metric kc<-kmeans(dist,5,iter.max=30,trace=TRUE) #calclulate the distances, into a matrix
+kc<-kmeans(dist,5,iter.max=30,trace=TRUE)
+```
+
+Classification
+```{r}
+df$claKM<-0
+df$claKM<-kc$cluster
+#df$claKM<-factor(df$claKM) barplot(table(df$claKM),col="darkslateblue",border="darkslateblue",main="[k- means]#observations/cluster")
+```
+
+```{r}
+100*(kc$betweenss/kc$totss) 
+```
+
+```{r}
+dim(df)
+res.cat <- catdes(df,11) 
+res.cat
+res.cat$test.chi2
+# annex: catdes (k-means)
+ 
+```
+
+```{r}
+res.hcpc$call$t$inert.gain[1:5]
+## [1] 1.8187697 0.9105858 0.7460223 0.6120673 0.3712993 
+df$hcpck<-res.hcpc$data.clust$clust
+ 
+```
+
+
+```{r}
+df$hcpck
+df$claKM
+table(df$hcpck,df$claKM)
+tt<-table(df$hcpck,df$claKM)
+tt
+100*sum(diag(tt)/sum(tt))
+```
+```{r}
+df$hcpck<-factor(df$hcpck,labels=c("kHP-1","kHP-2","kHP-3","kHP-4")) 
+df$claKM<- factor(df$claKM,levels=c(1,2,3,4,5),labels=c("kKM-1","kKM-2","kKM-3","kKM-4","kKM-5 "))
+tt<-table(df$hcpck,df$claKM); tt
+```
+
+
+
+# Principal Component Analysis
+
+In this section we do the principal component analysis to reduce the number of variables that we are using to analize the data. 
+
+```{r}
+#Reasignation of variables because there were some errors in the first lab
+vars_con<-names(df)[c(5,7,8,14)]
+vars_dis<-names(df)[c(1,2,4,6,9,10, 12,13,15,16,17)]
+vars_res<-names(df)[c(3,11)]
+
+
+
+#Remove remaining NA's
+df = df[complete.cases(df),]
+
+#Calculate the PCA
+res.pca<-PCA(df[,c(vars_res, vars_dis,vars_con)],quali.sup=c(2:13),quanti.sup= c(1)) 
+```
+
+
+```{r}
+#library(FactoMineR)
+#plot.PCA(res.pca,choix=c("var"),axes=c(1,2))
+```
+
+First of all we can interpret the result of the execution of the PCA function. We can see that the first dimension created contains a variance of 51% of the observations and that the second dimension created contains a variance of the 25% of the observations. We know that variables that conform a 90 degree angle are not related. Dimensions in the same direction are related. As we can see mileage is very positively strong related to the age of the car. The consumption of the car is inverse related to the tax. There is no relation between the tax or mpg and the mileage and the age. What is more cars with a lot of mileage or that are very old are cheaper than cars that are new.  
+
+
+```{r}
+# Multivariant outliers should be included as supplementary observations
+#ll <- which( df$mout == "YesMOut")
+#res.pca<-PCA(df[,c(vars_res, vars_dis, vars_con)],quali.sup=c(2:13),quanti.sup= c(1), ind.sup = ll )
+```
+
+
+## Eigenvalues and dominant axes analysis. How many axes we have to interpret according to Kaiser and Elbow's rule?
+
+```{r}
+round(res.pca$eig,2)
+barplot(res.pca$eig[,1],main="valors dims",names.arg=paste("dim",1:nrow(res.pca$eig)))
+sum(res.pca$eig[,1])
+```
+
+In one hand, According to Kaiser criteria the PCs with eignvalue greater than 1 have more variance that the original values and for this reason the axes that we have to leave are the ones with a value less than 1. Using this criteria we will have to interpret only two axes.
+
+In the other hand, according to the elbow rule criteria we have to choose before the line flaterns out, so we will choose two dimensions too.
+
+```{r}
+
+plot(res.pca$eig[,1],main="Elbow rule", type="b", pch = 19, col = "red")
+
+```
+
+
+
+## Individuals point of view. Are they any individuals "too contributive"?
+
+
+```{r}
+fviz_pca_ind(res.pca, col.ind="contrib", geom = "point") #+scale_color_gradient2(low="darkslateblue", mid=“white", high="red", midpoint=0.40)
+ 
+```
+
+We can see that there are individuals that are too contributive, especially at the extremes parts of the two dimensions. Let's understand them better.
+
+### Extreme Individuals
+We will leave just the extreme values in the following plots according to each of the two dimensions
+```{r}
+rang<-order(res.pca$ind$coord[,1])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+We notice that the extreme models are BMW i3. We can think that they don't follow the same characteristics as others because of their engine which is hybrid, which makes them extreme.
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+Mercedes X class is a big car with a big tax value, a very high mileage and a high price, this makes it a unusual model that doesn't follow the usual distribution.
+
+In dimension 2
+We will 
+```{r}
+rang<-order(res.pca$ind$coord[,2])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+
+Detection of multivariant outliers and influent data.
+
+Since we’ve commented before that we don’t consider multivariate outliers, no action should be taken here.
+
+## Interpreting the axes: Variables point of view coordinates, quality of representation, contribution of the variables
+
+```{r}
+round(cbind(res.pca$var$coord[,1:2],res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+round(cbind(res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+# dimdes easies this description from the variables
+res.des<-dimdesc(res.pca)
+## #
+
+res.des$Dim.1$quanti
+
+## # we can need more than 2 axes to have a good representation of the clouds
+#plot.PCA(res.pca,choix=c("ind"),cex=0.8)
+#plot.PCA(res.pca,choix=c("ind"),invisible=c("quali"),axes=c(3,4))
+plot.PCA(res.pca,choix=c("var"),axes=c(3,4))
+```
+
+We cansee that this dimensions reprensent a new type of individuals because the relation betweeen distance and years sell is contrary to what we waw in the first PCA with dimensions 1 and 2. Tax and mpg are correlated in a positive way too despite what we saw in the first graphic.
+
+```{r}
+res.des <- dimdesc(res.pca)
+```
+
+```{r}
+ fviz_contrib(res.pca, fill = "darkslateblue" , color = "darkslateblue", choice = "var", axes = 1, top = 5)
+```
+We see that price and mileage are the most contributieve to the first dimension.
+```{r}
+fviz_contrib(res.pca, fill = "darkslateblue", color = "darkslateblue", choice = "var", axes = 2, top = 5)
+```
+We see that mpg and mileage are the most contributive to the second dimension.
+
+# Hierarchial Clustering
+
+```{r}
+res.hcpc <- HCPC(res.pca,nb.clust = 4, order = TRUE)
+#res.hcpc <- HCPC(res.pca,nb.clust = 2, order = TRUE)
+```
+Note: If we chose the default number of cluster it would be 3, as we can guess from the inertia reduction plot. 
+In our case, due to the amount of data we have and when we reduce the clusters to 3, it gives us two big clusters and a small one (the black one above)which doesn't contain much cars and informations. Choosing four clusters keeps that small cluster but makes the two initial big clusters divide into three big clusters which is much more interesting than only dealing with two big clusters.
+
+## Description of clusters
+### Number of observations in each cluster:
+```{r}
+table(res.hcpc$data.clust$clust)
+```
+
+We see that the first cluster doesn't represent many vehicles as we explained before, the three other cluser are well represented which is interesting.
+
+```{r}
+barplot(table(res.hcpc$data.clust$clust), col="darkslateblue", border="darkslateblue", main="[hierarchical] #observations/cluster")
+```
+
+```{r}
+res.hcpc$desc.var$test.chi2
+```
+
+
+for model and year: df>90. The distributions follows a normal low
+We can see that price,age and tax constitute the main characterizes of the clusters.
+
+Next, we want to see for each cluster which are the categories that characterize them.The clusters that contain more individuals are the first, the second and the fourth one. Cluster number 4 has less individuals. We proceed to analyze them.
+
+### Description of the clusters with the qualitative variables:
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.hcpc$desc.var$category 
+quali_var_decription_1<-res.hcpc$desc.var$category 
+```
+
+
+
+
+Cluster 1:
+  -> The cluster 1 only contains the BMW i3 model
+Cluster 2:
+   -> This cluster almost only contains the smallest *tax_pay* (98%), 76% of its cars are in the cheapest category *Segement D* and 92% are *Semi Nou*
+Cluster 3:
+   -> This cluster contains *mid priced* vehicules (Segment B and Segment C) and 86% of the vehicules the pay the *most taxes*
+Cluster 4:
+  ->This cluster contains almost all the most expensive cars (*price*: Segment A), they represent 75% of the cars of this cluster. These cars are in the middle category for *tax_pay* (145-150) and are in the *age* category: Molt Nou
+
+  
+
+### Description of the clusters with the quantitative variables:
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.hcpc$desc.var$quanti
+quanti_var_decription_1<-res.hcpc$desc.var$quanti
+```
+Cluster 1:
+  -> The first cluster contains cars with a huge *mpg* and an above average *tax* pay, we can thus think of the Hybrid cars such as the BMW i3.
+Cluster 2:
+   -> The second cluster represents cars that are cheap, have a low *tax_pay*, an above average *mpg* and an the biggest *mileage*. These are the second most common cars as they used to be effective but are turning *old*.
+Cluster 3:
+   -> The third cluster represents the most cars as the *mileage* and *mpg* are approximately near the average, the car seem to be of a diesel nature as the *tax* is high
+Cluster 4:
+  ->The fourth cluster represents ¨*new* cars that are pretty *expensive*.
+
+### The description of the clusters by the individuals
+
+```{r}
+res.hcpc$desc.ind$para
+```
+
+What we obtain are the more representative individuals,paragons, for each cluster. We get the rownames of each paragon in every single cluster.
+
+```{r}
+res.hcpc$desc.ind$dist
+```
+
+```{r}
+para1<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[1]]))
+dist1<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[1]]))
+para2<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[2]]))
+dist2<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[2]]))
+para3<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[3]]))
+dist3<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[3]]))
+para4<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[4]]))
+dist4<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[4]]))
+
+```
+
+```{r}
+plot(res.pca$ind$coord[,1],res.pca$ind$coord[,2],col="grey50",cex=0.5,pch=16)
+points(res.pca$ind$coord[para1,1],res.pca$ind$coord[para1,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist1,1],res.pca$ind$coord[dist1,2],col="chartreuse3",cex=1,pch=16)
+points(res.pca$ind$coord[para2,1],res.pca$ind$coord[para2,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist2,1],res.pca$ind$coord[dist2,2],col="darkorchid3",cex=1,pch=16)
+points(res.pca$ind$coord[para3,1],res.pca$ind$coord[para3,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist3,1],res.pca$ind$coord[dist3,2],col="firebrick3",cex=1,pch=16)
+points(res.pca$ind$coord[para4,1],res.pca$ind$coord[para4,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist4,1],res.pca$ind$coord[dist4,2],col="palevioletred3",cex=1,pch=16)
+```
+
+## Partition quality
+We are going to evaluate the partition quality.
+
+### Gain in inertia (in %)
+```{r}
+# ( between sum of squares / total sum of squares ) * 100
+((res.hcpc$call$t$within[1]-res.hcpc$call$t$within[5])/res.hcpc$call$t$within[1])*100
+```
+
+The quality of this reduction if of 73.45%.
+
+In case we wanted to achieve an 80% of the clustering representativity we would need 10 clusters.
+```{r}
+((res.hcpc$call$t$within[1]-res.hcpc$call$t$within[10])/res.hcpc$call$t$within[1])*100
+```
+
+### Save the results into dataframe
+```{r}
+res.hcpc$call$t$inert.gain[1:5] 
+df$hcpck<-res.hcpc$data.clust$clust
+```
+
+# K-means Classification
+
+```{r}
+res.pca <- PCA(df[,c(vars_con,vars_dis)], scale. = T,quali.sup=c(5:15))
+ppcc<-res.pca$ind$coord[,1:2] # We choose the two first  principal components as per kaiser
+summary(ppcc)
+dim(ppcc)
+```
+
+We will estimate the optimal number of clusters
+```{r}
+#library("factoextra")
+#fviz_nbclust(ppcc, kmeans, method = "gap_stat") 
+```
+
+## Classification
+We will compute, dist,  a matrix which shows the distances to each one of the clusters
+```{r}
+#d<-dist(ppcc) # coordenates are real - Euclidean metric
+#kc<-kmeans(d,3,iter.max=30,trace=TRUE) #calclulate the distances, into a matrix
+#kc
+#kc<-kmeans(dist,3,iter.max=30,trace=TRUE)
+set.seed(123)
+kc <- kmeans(ppcc, 3, nstart = 25)
+```
+
+
+```{r}
+df$claKM<-0
+df$claKM<-kc$cluster
+df$claKM<-factor(df$claKM)
+barplot(table(df$claKM),col="darkslateblue",border="darkslateblue",main="[k- means]#observations/cluster")
+```
+
+
+```{r}
+fviz_cluster(kc,ppcc, ellipse.type = "norm")
+```
+To have a better perception of the clusters:
+
+```{r}
+# Change the color palette and theme
+fviz_cluster(kc, ppcc,
+   palette = "Set2", ggtheme = theme_minimal())
+```
+
+
+```{r}
+100*(kc$betweenss/kc$totss) 
+```
+
+
+## K-means clusters characteristics
+If we want to know the characteristics of each cluster, we need to execute a catdes to obtain these characteristics. In the following output we get them:
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.cat <- catdes(df,20) #the 20th variable of df is claKM
+res.cat
+```
+
+We start wit the description of the categorical variables that characterize the clusters, so in this output we do not have dimensions because it is the total association. We can see the intensity of the variables, in our case the variables that affect more to the clustering are *Tax_pay*, *Age* and *price*.
+
+• Cluster 1:
+  -Every car in this cluster is in the *lowest tax segment*.76% of the cars that pays the less taxes are in this cluster. 94% of the total *Semi nou cars* are in this category, while it contains approximately (44%) half of the *semi nou cars*.73% of the *cheapest cars* are also in this cluster. This explains why this cluster contains a large amount of cars, cars that are majoritarely *manual* (62%). 77% of these cars have been bought *between 2013 and 2016*.
+
+• Cluster 2:
+  -Almost 95% of all the cars in this cluster are in the second *highest tax segment*. Almost all the cars (96%) with the *lowest miles*(0,6) are in this cluster, which explains that the cars in this cluster are almost all *new* (80% of the cars have been bought after 2018). Almost all the *segment A* cars are in this cluster (97%) in addition to the *B category* (77%). This cluster thus contains the *newly bought cars* that are expensive
+
+• Cluster 3:
+  -This car contains the cars that pay the most in *taxes* (75% of them), 85% of the cars in this cluster blong to *cheapest cars* (Segments C and D) which explains why their tax pay is big (as we will see later on in the CA analysis). 42% of the cars in this cluster are in the category of cars with the *most mileage*. This cluster thus contains *old, cheap cars that pay the most taxes*
+
+We can notice that the cluster have been chosen in the basis of the tax segments in addition to the age of these cars. We will later develop this point in the CA analysis to dress a comparaison between age and tax in addition to price and tax
+
+We now proceed to see the quantitative variables that characterizes the clusters.
+• Cluster 1:
+   -The *Tax_pay* is below average by about 90 euros which consolidates our analysis of the categorical variable. The *Years_sell* Mean is slightly above average by half a year, the *mileage* is consequently also higher than the average. The *price* is below average by about 8000 euros with a smaller sd than in other categories.This confirms what we saw in the categorical variables as cars in this category are *getting old, unexpensive and tax economical*.
+• Cluster 2:
+  -The *tax*variable is slightly above average by 24 dollars, *price* is by about 7000 dollars with a big sd which is normal (as the price grows, the sd naturally grows), we  thus expect cars with a really huge price in this category. *Mileage* is below average as well as the *age* variable which confirms what we saw in the categorical variables, cars in this category are *new and expensive but not too tax consuming*.
+• Cluster 3:
+  -the *tax* variable is above average by about 30 dollars, *mileage* is also way above average as well as *years*. *price*is below average by about 6000 dollars. This confirms what we saw with the categorical variables as the cars in this category are *old, cheap and tax consuming*
+
+This accordance between the categorical and continuous variables makes us confirm that these clusters have been assigned based principally on *tax_pay*, *ag*e and *price*
+
+## Comparaison of clusters (confusion table)
+We want to compare the hierarchical clustering, previously done, and the k-means clustering, so proceed to do the following.
+```{r}
+df$hcpck<-res.hcpc$data.clust$clust
+tt<-table(df$hcpck,df$claKM)
+tt
+```
+
+In order to have a better visualization of the table we add names to the columns and the rows:
+
+```{r}
+
+df$hcpck<-factor(df$hcpck,labels=c("kHP-1","kHP-2","kHP-3","kHP-4")) 
+df$claKM<- factor(df$claKM,levels=c(1,2,3),labels=c("kKM-1","kKM-2","kKM-3"))
+tt<-table(df$hcpck,df$claKM); tt
+```
+
+```{r}
+100*sum(diag(tt)/sum(tt))
+```
+We have a concordance of 27% between the two ways of clustering which is not really good
+
+
+
+# CA analysis
+
+CA analysis for your data should contain your factor version of the numeric target (previous) in K=5 (variable aux_price created before) levels and 2 factors:
+
+We set the numeric variable as the price of the car
+
+With the price factor, we proceed to create a variable that associates the price with different factors such as tax price (f.tax), engineSize and Years_Sell. For each of these variables, we create a contingency table and look up for correlations and links between the different categories of these variables.
+
+## Price vs f.Tax
+
+```{r}
+tt<-table(df[,c("f.price","f.tax")]);tt
+```
+
+
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1),ylim=c(-0.25,0.25),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.tax")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$f.tax))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+The majority of the expensive cars (Segment A and B) are new and more environment friendly thanks to new technologies, they consequently have  a less expensive tax price . Cheapest cars(Segment D),  have a small mpg and have thus the least tax price (<145).  We can't give additional informations about the Segment C as there is no tax category that is really near it. .
+
+
+```{r}
+summary_price_tax<-summary(res.ca)$call
+```
+
+
+We can see from the summary is that we have a chi square statistic of  2659.613, great enough to reject the H0, which means the intensity of the relation between tax and price is high. If we take a look at the variances from the different dimensions, we can see that all together sum more than 1.
+
+## Price vs EngineSize
+
+```{r}
+tt<-table(df[,c("f.price","engineSize")]);tt
+```
+
+
+We want to see if the rows and columns are independents, we will do a p-value test
+ H0: Rows and columns are independent
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1),ylim=c(-0.25,0.25),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.engineSize")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$engineSize))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+We can see in the plot,  that the category "Gran" corresponding to big engines belongs to the summum of highest price category (Segment A), while the smaller engines "MITJÀ" are  cheaper  (Segment A and Segment B). The smallest engines belong to the bottom of the cheapest category (Segment D). All these results seems logical and follow the cars' distribution of prices we know 
+
+```{r}
+summary_price_enginesize<-summary(res.ca)$eigenvalues
+```
+
+We can see from the summary is that we have a chi square statistic of 1155.745, great enough to reject the H0 hypothesis, which means the intensity of the relation is high. If we take a look at the variances from the different dimensions, we can see that all together sum is 1.
+
+```{r}
+mean(res.ca$eig[,1]) 
+```
+Following the kaiser criteria and the value got in the output, we should retain dimensions with a variance greater than  0.116062. In this case, the first dimension fulfills this because its variance is 0.419, but it is not enough to work with data so, we would choose 2 dimensions for this case.
+
+## Price vs Years-sell
+
+```{r}
+tt<-table(df[,c("f.price","years_sell")]);tt
+```
+
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1.5),ylim=c(-0.3,1.3),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.years_sell")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$years_sell))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+We can see in the plot,  that the category "MOLT NOU" belongs to the highest prices categories (Segment A and Segment B), while the older cars "SEMI NOU" belong to the cheaper categories (Segment C and Segment D). The oldest cars belong to the cheapest category (Segment D).
+
+
+ 
+```{r}
+summary_price_years_sell<-summary(res.ca)$eigenvalues
+```
+
+We can see from the summary is that we have a chi square statistic of 2200.099, great enough to reject the H0 hypothesis, which means the intensity of the relation is high. If we take a look at the variances from the different dimensions, we can see that all together sum more than 1.
+
+We also think that it would be interesting to see the link between age and tax price. This will show us if the manufacturers are doing efforts to respect environment (which would be shown by a diminution of tax price)
+```{r}
+tt<-table(df[,c("f.tax","years_sell")]);tt
+```
+
+```{r}
+res.ca_1 <- CA(tt)
+```
+
+
+```{r}
+plot(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],pch=19,col="blue",xlim=c(-1.5,1.5),ylim=c(-1,1),xlab="Axis 1",ylab="Axis 2", main="CA years sell vs f.tax")
+points(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red")
+text(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],lwd=2,col="blue",labels=levels(df$years_sell))
+text(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red",labels=levels(df$f.tax))
+lines(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],lwd=2,col="blue")
+lines(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red")
+```
+We can consequently confirm our hypotesis, new cars are more respectful to the environment (tax price<150) than the old cars
+ 
+
+# MCA analysis
+
+Now we will proceed with the multiple correspondence analysis to analyse all the categorical variables. 
+
+To the analysis of the MCA we will use the variables transmission, fuelTYpe, manufacturer, Audi, years_sell (nou, vell, molt vell), f.price, f.miles and f.tax. The quantitative supplementary variable will be the price one. Teh qualitative variables that will not be used for the computation of MCA will be binary target Audi and factor price.
+
+
+```{r}
+names(df[,c(3,4,6,10,11,13,16,17,18,19)])
+res.mca<-MCA(df[,c(3,4,6,10,11,13,16,17,18,19) ],quali.sup=c(5,7), quanti.sup=1 )
+```
+Variables:
+
+The graphic created by the execution of the function MCA shows us that the Dimension 1 gets 16,5% of the variability and the dimension2 gets 10% of the variability. The supplementary quantitative variable price has more correlation to the dimenison 1 than to the dimension t2. As the Audi variable has been used as a supplementary to the analsis it cas no correlation with the dimensions. We will enter in more tdetail in the next sections. 
+
+
+Individuals and categories:
+
+We will enter in more detail in the analysisi of individuals and categories in the next sections but we can see clearly that there are some varibales and individuals that has a strong correlation with the dimension 2. 
+
+```{r}
+plot.MCA(res.mca,choix=c("ind"),cex=0.8)
+plot.MCA(res.mca,choix=c("ind"),invisible=c("ind"),cex=0.8)
+```
+
+## Eigenvalues and dominant axes analysis. How many axes we have to consider for next Hierarchical Classification stage?
+
+We will use the Kiser criteria to choose the number of axes to be considered. Wee will choose all the dimensions that have a greater eigenvalue than the mean. As the mean is 1428571, we will use the first 7 dimensions to analyze the data. As we can see in the graphic this 7 dimensions accumulate approximately the 60% of the variability. 
+
+```{r}
+mean(res.mca$eig[,1])
+head(get_eigenvalue(res.mca), 10)
+fviz_screeplot(
+  res.mca, 
+  addlabels=TRUE, 
+  ylim=c(0,20), 
+  barfill="darkslateblue", 
+  barcolor="darkslateblue",
+  linecolor="skyblue1"
+)
+```
+
+## Individuals point of view.
+
+### Are they any individuals "too contributive"?
+
+```{r}
+fviz_mca_ind(res.mca, col.ind="contrib", geom = "point") 
+```
+
+In the dimension 1 we can't identify any observations that are too contributive. Otherwise, in the dimension 2 the are several individuals that have much weight in the creation of the second dimension. 
+
+### Are there any groups?
+
+Depending on the qualitative variable used to classify the individuals we can see different types of groups. After proving all of them we have chosen fyelType, years_sell and f.price because are the ones that show more clearly differentiated groups. The first one, fuel Type is strongly related to the dim2. Values higher than 0 are represented by Petrol vehicles, values between 0 and -1 are represented by Diesel vehicles and finally the extreme observations, the ones that are more contributive to the creation of the Dim2 axis are the ones created by Hybrid vehicles.
+
+As we can see the variable years_sell is strongly related to the dimension 1. The newest vehicle sobtain values lower than 0 and the oldest vehicle obtain values higher than 0. 
+
+```{r}
+fviz_mca_ind(res.mca, label="none", habillage="fuelType")
+fviz_mca_ind(res.mca, label="none", habillage="years_sell")
+fviz_mca_ind(res.mca, label="none", habillage="f.price")
+```
+
+
+## Interpreting map of categories: average profile versus extreme profiles (rare categories)
+
+TO analyse the categories in out dataset we will use the following two plots. 
+```{r}
+fviz_mca_var(res.mca, choice="mca.cor", repel=TRUE)
+fviz_mca_var(res.mca, repel=TRUE)
+```
+The first plot shows us the correlation between variables and the two axes defined. 
+
+The first significant observation that we can see is that the variable fuelType has a huge impact on the creation of the second dimension and that it gets 60% of the variability. This matches the results of the previus section where we saw that the cars where distributed in the plot according to their consumption type. The variables f.tax, transmission and manufacturer have a significant impact too. This might be because the type of fuel of a car conditions the type of transmission, the manufacturer and the tax.
+
+The dimension 1 is significantly created by the variables miles, years_sell and f.tax. That makes sense because this variables are related too as we saw in the previus chapters. 
+
+The second plot shows the categories for each of the variables that we have described. Cars with a tax between 125 and 145 and hybrid cars have a very big positive correlation with the dimension 2. The dimension 1 otherwise shows us other relation. For example newest cars are negative correlated to the dimension 1 but positive correlated with cars with very few miles. 
+
+
+## Interpreting the axes association to factor map.
+
+In this part we rank the variables and categories seen in the previus part due to ther correlaiton to the 2 dimensions of the factor map.
+
+```{r}
+res.desc_1 <- dimdesc(res.mca, axes = c(1,2))
+```
+
+
+### Dimension 1
+
+#### Quantitative
+
+* Price (-0,6): The only quantitative variable that we have included in our analysis is the price. As we can see it has a strong negative relation with the dimension 1. That means that it will have a positive strong correlation with alll variables that have hight negative values. 
+
+#### Qalitative
+
+We can see that there are 3 variables that have the biggest values. This three are highly positive correlated with the dimension1 but they are very correlated between them too. This means that, for example, how much older is a cad, it has muche more miles and has to pay more taxes.
+
+* years_sell (0,78)
+* f.miles (0,73)
+* f.tax (0,70)
+
+#### Category
+
+The most correlated categories are the ones that are part of the yeats_sell, miles and tax variables. This is shown in the newxt lists where we tank the variables according to their correlation. 
+
+Positive correlated: as we can see old cars have a lot of milages and are cheap (segment-D)
+
+* years_sell=Vell (0.46)
+* f.tax=f.tax-(1,125] (0.60)
+* f.miles=f.miles-(34,323] (0,70)     
+* f.price= Segmento-D (0,62)
+
+Negative correlated: as we can see new cars have less miles and are more expensive than the ones of the previus list.
+
+* years_sell=Molt nou (-0,80)
+* f.tax=f.tax-(145,150] (-0.61)    
+* f.miles=f.miles-[0,6] (-0,70) 
+* f.price=Segmento -  A (-0,57)
+
+
+
+```{r}
+res.desc_1[[1]]
+```
+
+### Dimension 2
+
+
+#### Quantitative
+
+* Price (0,33): The only quantitative variable that we have included in our analysis is the price. As we can see the correlation with the dimension 2 is less important than the correlation with the dimension 1 but in this case is positive.
+
+#### Qalitative
+
+As we have seen in the previus analysis the variable that has more weight in the second dimension is the variable fuel Type with a value of 0,58. Transmision manufacturer and tax are related too buyt in a less significant way.
+
+* fuelType (0,58)
+
+#### Category
+
+The most correlated categories are the ones that build the fuelType variable.
+
+Positive correlated: Hybrid cars are positive correlated with de dimension and with the category f.tax-(125,145].
+
+* f.tax=f.tax-(125,145] (2.55)
+* fuelType=f.Fuel-Hybrid (1.74)
+
+Negative correlated: diesel and petrol cars are positive related between them but negative related to transmision, manufacturer and tax.
+
+* fuelType=f.Fuel-Diesel (-0.66)
+* fuelType=f.Fuel-Petrol (-1.08)
+
+```{r}
+res.desc_1[[2]]
+```
+
+
+## Perform a MCA taking into account also supplementary variables (use all numeric variables) quantitative and/or categorical. How supplementary variables enhance the axis interpretation?
+
+Now we have added to the suplementaru quantitativ e list the 4 quantitative variables (price, mileage, mpg, tax) and we have added to the computation of the MCA the variables AUdi and engineSize.
+
+```{r}
+res.mca<-MCA(df[,c(3,4,5,6,7,8,9,10,11,13,16,17,18,19) ], quanti.sup=c(1,3,5,6), graph = FALSE )
+
+```
+
+
+## Interpreting the axes association to factor map.
+
+In this part we rank the variables and categories seen in the previus part due to ther correlation to the 2 dimensions of the factor map.
+
+We can see that supplementary quantitativa variables are much more related to the first dimension that to the second dimension. Milage and mpg are veri positively related and negative related to price and tax.
+
+The dimension 2 is more correlated to qualitative variables. As we can see engineSize is the variable more related with the dimension 2 but fuel type remains in the top2.
+
+```{r}
+res.desc <- dimdesc(res.mca, axes = c(1,2))
+
+fviz_mca_var(res.mca, choice="quanti.sup")
+fviz_mca_var(res.mca, choice="mca.cor")
+```
+
+
+### Dimension 1
+
+Now we will proceed to analyse variables and categories for dimension 1 with the result of the MCA with all the variables. As we will see adding variables have not changed significantly the creation of this dimension. The amount of variance collected by this dimension is of about 15%.
+
+#### Quantitative
+
+Quantitative variables have high correlation to the dimension 1. Mileage and miles per gallon has a strong positive correlation. Tax and price have a negative correlation with the dimension 1.
+
+* mileage (0.68) 
+* mpg (0.40)
+* tax (-0.57)
+* price (-0.81)
+
+#### Qalitative
+
+We can see that there are 3 variables that have the biggest values. This three are highly positive correlated with the dimension1 but they are very correlated between them too. This means that, for example, how much older is a cad, it has muche more miles and has to pay more taxes. This hasn't changed in relation with the first MCA analysis.
+
+* years_sell (0.67)
+* f.miles (0.61)
+* f.tax (0.64)
+
+#### Category
+
+The most correlated categories are the ones that are part of the price, years, miles and tax variables. This is shown in the next lists where we tank the variables according to their correlation. 
+
+Positive correlated
+
+* f.tax=f.tax-(1,125] (0.66)
+* f.miles=f.miles-(34,323] (0.59)
+* f.price=Segmento-D (0.72)
+
+Negative correlated
+
+* mpg_d=mpg_d-[0,44.8] (-0.61)
+* f.miles=f.miles-[0,6] (-0.62)
+* f.price=Segmento-A (-0.66)
+* years_sell=Molt nou (-0.72)
+
+
+```{r}
+res.desc<-res.desc[[1]]
+```
+
+### Dimension 2
+
+Now we will proceed to analyse variables and categories for dimension 2 with the result of the MCA with all the variables. As we will see this dimension has absorved themajority of the variance generated by the engineSize variable. The amount of variance collected by this dimension is of about 10%.
+
+#### Quantitative
+
+The quantitative variables have much more correlation to the dimension 1 than to the dimension 2.
+
+* Price (0,33): The only quantitative variable that we have included in our analysis is the price. As we can see the correlation with the dimension 2 is less important than the correlation with the dimension 1 but in this case is positive.
+
+#### Qualitative
+
+The variable guelType remains as the second with more correlation to the second dimension but the engineSize one now is the variable with more correlation. This last one has added some correlation with the manufacturer variable.
+
+* engineSize (0.57)
+* fuelType (0,48)
+* manufacturer (0.40)
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc[[2]]
+```
+
+# Hierarchical Clustering (from MCA)
+
+In the first section of MCA analysis we said that we would use Kaiser criteria to choose the clusters and this mean that we have to choose the 9 clusters that have greater value than the mean. Otherwise, to reduce the complexity of the problem we have executed the function sevveral times and we have found that 4 clusters is a number that groups observations in significant diferent groups. 
+
+```{r}
+res.hcpcMCA <- HCPC(res.mca,nb.clust = 4, order = TRUE)
+```
+
+## Description of clusters
+
+We have four different clusters that are represented in the previus image.
+
+* Cluster1: represented in color black is more correlated to the dim1 that to the dim2. It is correlated i a negative way. Contains 1653 observations. 
+* Cluster2: represented in color pink is correlated with both dimensions in a approximately equal way and contains 1000 observations.
+* Cluster3: represented in color green is strong positive correlated to dim1 and negative correlated to dim2. COntains 943 observations.
+* Cluster4: represented in color blue is positive correlated to dim1 and positive correlated to dim2.
+
+Although the number of observations of the cluster 1 is higher than the other clusters, the number of observations is distributed equally between them.
+
+```{r}
+table(res.hcpcMCA$data.clust$clust)
+```
+
+### Correlation with categories
+
+When we say that a cluster is correlated with a dimension what we are saying is that this cluster is correlated with the variables correlated with this dimension too. Now we will analyze the most significant correlations with the different categories.
+
+Note: to help interpret the result of the output
+Cla/Mod: % of the individuals who belong to the category and also belong to class 
+Mod/Cla: % of individuals of class that belong to the category
+Global: % of the observations that are part of the category
+
+* **Cluster 1:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car. The representation of the non audi cars is noticable (41%). 
+  + Variable target price: The 73% of the most expensive cars **(f.price=Segmento -  A)** belong to this group. Of all the observations of the cluster a 55% are very expensive. 
+  + Variable tax: 96% of the individuals of the cluster 1 are of the category **f.tax=f.tax-(145,150]**. What is more 50% of the individuals that are of this category belong to this cluster. 
+  + Variable old: 92% of the observations in this cluer are **very young (less than two years old)**. This cluster contains 62% of the newest cars. 
+  + Manufacturer: 56% of the **Mercedes cars** belong to this cluster and they represent a 44% of all the cluster observations. 
+  + Transmission: 62% of the cars in this group are **SemiAuto** and 54% of the SemiAuto cars 
+  + EngineSize: 64% of the observations belong to the category **engineSize=Mitjà**.
+  
+* **Cluster 2:**
+  + Variable target Audi: This cluster contains all the **Audi=Yes**. What is more all the Audi cars belong to this category. This is useful data because this varieable is one of our target variables.
+  + Variable target price: From the point of view of the price of the cars in this cluster we don't get such relevant information. We can see that 25% belong to the cheapest category **(f.price=Segmento -  D)** and a 30% belong to the most expensive  **(f.price=Segmento -  A)**
+  + Variable fuel: more or les 50% of the cars in this group are of the type **fuelType=f.Fuel-Petrol** and the other 50% **fuelType=f.Fuel-Diesel**
+  + Variable old: 45% of the observations in this cluer are **years_sell=Molt nou **. This cluster contains 20% of the newest cars.
+  + EngineSize: 50% of the observations belong to the category **engineSize=Mitjà**.
+  
+* **Cluster 3:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car.
+  + Variable target price: The 43% of the cheapest cars **(f.price=Segmento -  D)** belong to this group. Of all the observations of the cluster a 68% are very expensive. 
+  + Variable fuel: 85% of the cars in this group are of the type **fuelType=f.Fuel-Petrol**.
+  + Manufacturer: 54% of the **VW cars** belong to this cluster and they represent a 90% of all the cluster observations. 
+  + Transmission: 86% of the cars in this group are **transmission=f.Trans-Manual**. 
+  + EngineSize: 95% of the observations belong to the category **engineSize=Mitjà**.
+
+* **Cluster 4:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car.
+  + Variable target price: 40% of the observations are from the category **f.price=Segmento -  C** and another 40% are from the category 40% of the observations are from the category **f.price=Segmento -  D**.
+  + Manufacturer: 50% of the **BMW cars** belong to this cluster and they represent a 40% of all the cluster observations. 40% of the **Mercedes cars** belong to this cluster and they represent a 40% of all the cluster observations.
+  + Variable fuel: 85% of the cars in this group are of the type **fuelType=f.Fuel-Diesel**.
+  + Variable old: 91% of the observations in this cluer are not too old**years_sell=Semi nou** (between 3 and 5 years old).
+  + EngineSize: 71% of the observations belong to the category **engineSize=Mitjà**.
+
+```{r}
+res.hcpcMCA$desc.var$category
+```
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE }
+## Adding multivarioant ouliers column
+library(chemometrics)
+res.mout <- Moutlier( df[ ,c(3,5,8,14)], quantile = 0.9995, tol=1e-40 )
+llmout <- which((res.mout$md>res.mout$cutoff)&(res.mout$rd>res.mout$cutoff))
+df$mout <- 0
+df$mout[llmout] <- 1
+df$mout <- factor( df$mout, labels = c("MvOut.No","MvOut.Yes"))
+```
+
+
+# Description of Model Building process for prediction of numeric response (price).
+
+We will start by going through the process of creating a forecasting model for the prediction of the target numerical variable price.
+
+## Multiple regresion using covariates 
+
+To begin with, we will start creating the best model possible using only the numeric variables available (mpg, millage, tax and years_sell2) to understand the relation between them and the target price. 
+
+Using the principal component analysis method, in the previous assignment, we saw that exists a strong negative correlation between the variable price and millage and years_sell2. This gives us a clue of which numeric variables will have more impact in the model creation process. We can see that there exists a positive correlation between price and tax and price and mpg but this relation is less strong. The condes method output shows that the correlation between price and mpg is really weak because it does not appear on the output.
+
+```{r}
+#Calculate the PCA
+res.pca<-PCA(df[,c(vars_res, vars_dis,vars_con)],quali.sup=c(2:13),quanti.sup= c(1)) 
+res.con <- condes(df[c(5,7,8,14)],num.var=which(names(df)=="price"))
+res.con$quanti
+```
+
+
+### Model 1: price ~ mgp+mileage+tax+years_sell2
+
+The frist model that we have created, includes all the covariates. The next steps will have the objective to analize the statistical influence of them in the creation of the model. 
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE }
+# Preparing data
+ll<-which(df$year==0);ll
+df$year[ll]<-0.5
+ll<-which(df$tax==0);ll
+df$tax[ll]<-0.5
+ll<-which(df$mileage==0);ll
+df$mileage[ll]<-0.5
+ll<-which(df$mpg==0);ll
+df$mpg[ll]<-0.5
+```
+
+```{r}
+#1st linear model with my numeric variables:
+m1<-lm(price~mileage+tax+mpg+years_sell2,data=df)
+summary(m1)
+vif(m1) #Variance inflation factor: multicorrelation
+par(mfrow=c(2,2))
+plot(m1,id.n=0)
+# Basic graphs for model validation
+par(mfrow=c(1,1))
+```
+
+After the execution of the first model we can get some conclusions. Model 1 explains 42.49% of the variability of the target, which is really not sufficient. We should try to look at the correlated continuous variables in order to eliminate the redundancy and add factors to this regression.
+
+From the point of view of the residuals we can see that the distribution of the residuals is not normal so they are not independent and we have to try find why. The residuals vs leverage plot shows us that there are some outliers that might be causing this non normal distribution.
+
+```{r}
+m1<-lm(price~mileage+tax+mpg+years_sell2,data=df[df$mout=="MvOut.No",])
+
+par(mfrow=c(2,2))
+plot(m1,id.n=0)
+par(mfrow=c(1,1))
+```
+We can see that extracting the multivariant outliers from the analysis helps to improve the normal distribution of the residuals but is not sufficient. We will do this process at the end of the analysis. 
+
+We will check if our variable target is normal to apply a transformation to improve the normal distribution of the residuals.
+
+```{r}
+hist(df$price,50,freq=F,col="darkslateblue",border = "darkslateblue") 
+mm<-mean(df$price);ss<-sd(df$price)
+curve(dnorm(x,mean=mm,sd=ss),col="red",lwd=2,lty=3, add=T)
+shapiro.test(df$price)
+# skewness
+library(e1071) 
+skewness(df$price)
+# kurtosis
+library(moments)
+kurtosis(df$price)
+```
+We can see that our histogram is a bit skewed at the right and not completely symmetrical.It is not thus totally following a normal shape
+
+The p-value is too small, we can thus reject the H0 hypothesis that indicates that the price variable is following a normal distribution.
+
+Normal data should have 0 skewness: we see that our data is right skewed at 1.27
+
+Normal data should be 0. We have 5.54, so, in this case, our data is not normal.
+
+```{r}
+vif(m1)
+```
+The values given are not superior to 3 so we can say that correlation is not that impactful in this regression model
+
+
+### Model 2: log(price) ~ mileage+tax+years_sell2
+
+As we know that the relation of the variable price and mpg is really weak we will compute another model extracting mpg from the analysis. What is more we will apply a logarithmic function on the variable price to make normal, as we saw on the lab.
+
+```{r}
+m2<-lm(log(price)~tax+mileage+years_sell2,data=df)
+summary(m2)
+par(mfrow=c(2,2))
+plot(m2,id.n=0)
+par(mfrow=c(1,1))
+```
+Model 2 now explains 41.6% of the variability of the target, We can confirm now that extracting the variable mpg from the analysis does not make a big effect in terms of geting the maximum variance possible (around 1% only).
+
+Looking at the graphs, we can clearly see that model m2 is better suited than m1 for this regression, we will further analyze the plots for the m2 model and try to optimize the m2 model with Boxcox and BoxTidwell.
+
+What is more, now the plots shows that the residuals are distributed in a normal way so we will choose this model as the valid one. We can see homeosticity too. We can see that we have a better normality, however the residuals vs leverage plot doesn't seem to have gotten better as more residuals with greater leverage have appeared, we will consider removing them after (especially number 4830, 4828, 2141, 2056 and 2050). We will take them out at the end of the analysis too. 
+
+```{r}
+influencePlot( m2, id=c(list="noteworthy",n=5))
+```
+
+
+#### Model validation
+
+We have to check that our asumptions asociated with the multiple regresion:
+  *Linearity: The relationship between X and the mean of Y is linear.
+  *Homoscedasticity: The variance of residual is the same for any value of X.
+  *Independence: Observations are independent of each other.
+  *Normality: For any fixed value of X, Y is normally distributed.
+
+
+In multiple regression , two or more predictor variables might be correlated with each other (collinearity). In the presence of collinearity, the solution of the regression model can not be accurate. We can see that that there are not variables that are very correlated between them so we don't have much redundace.
+
+```{r}
+vif(m2)
+```
+
+```{r}
+residualPlots(m2,id=list(method=cooks.distance(m2),n=10)) 
+```
+As we saw in the previous page, these graphics show that thee residuals are independent in this model so they not take part of the model explanation. By the way some extrem values affect in a negative way in the perarsons graphic for the tax variable. We can see great linearity in all four graphics.
+
+```{r}
+library(effects) 
+plot(allEffects(m2))
+```
+We can see that years_sell2 and mileage have a negative correlation with the variable target log(price). When cars are older or have been driven for more miles the price of them decreases. What is the same when they are more used they are cheaper. In the other hand, the variable tax is directly correlated so more expensive cars pay more taxes but it has two extreme values that seem to reduce the quality of the prediction.
+
+We will use the boxcox and boxTidwell methods to try to understand better the relation between variables and target and apply transformations if necessary. 
+
+```{r}
+library(MASS)
+boxcox(price~tax+mileage+years_sell2,data=df)
+```
+As we can see int the original model the lambda got by the boxcox method has a value near 0. As it is far from one this means that the lambda=0, so we had a good intuition  by choosing the to put the target in log because it is far from the 1 value (value that determinates that data has not to be changed).
+
+We will try the BoxTidwell method in order to see if it will make our model better by improving the normality of the residuals and adding variability explanation.
+```{r}
+boxTidwell(log(price)~tax+mileage+years_sell2,data=df)
+```
+We will apply the transformations according to the output of the boxTidwell result. Mileage will not be transformed but tax and years_sell2 yes because they have value lambdas different from 1. 
+
+```{r}
+m2aux<-lm(log(price)~log(tax)+mileage+I(years_sell2^2),data=df)
+summary(m2aux)
+```
+The explanatory of the variables hasn't changed, we will plot the residuals in order to see if we carry on with this new model.
+```{r}
+par(mfrow=c(2,2))
+plot(m2aux)
+```
+The new model doesn't improve the residuals nor the explanatory of the variables. For the residuals vs leverage plots, we can see that this model adds too many residuals with high leverage, which makes the model less strong. We will thus stick with m2.
+
+## Adding factor variables
+
+Now we have to try to imporve it because a variance of 40% is not enough to get a good model so we will proceed adding factor variables. 
+
+```{r}
+condes(df,3)$quali
+```
+Now we have to choose the factors that we will use in our analysis. Using the previus result we will chose variables most correlated to the variable target price. The ones that has less correlation will not be used. We won't put the factor year as a predictor as it will induct a high correlation with the continuous variable years_sell2 which will make this regression impossible and show an error when calling VIF. 
+
+The factors used will be manufacturer, model, aux, transmission, engineSize and fuelType but we will start adding only the highest correlated: model and engineSize.
+
+### Model 3: price ~ mileage+tax+years_sell2 + model+engineSize
+
+```{r}
+m3<-lm(price~tax+mileage+years_sell2+model+engineSize,data=df[!df$mout=="MvOut.Yes",]);
+
+summary(m3)
+```
+We can see that adding only two factors we have captured 84% of the variability thanks to this model. It's a really good result.
+
+Let's check the plots to see how are the residuals' normality and leverage.
+```{r}
+par(mfrow=c(2,2))
+plot(m3)
+```
+We can see that even though the variability retention of this model is excellent, the residuals don't have a good behaviour as:
+    *The extreme quantiles don't follow a normal distribution
+    *There are some extreme values that need to be removed (number 2388, 1015, 2741 etc) which have a big leverage and affect 
+      the regression.
+    *The scale location graph's red line is not exactly horizontal.
+    
+Let's check for correlated variables:
+
+```{r}
+vif(m3)
+```
+
+The variables which have the highest correlations in the model are model, engineSize and mileage
+
+```{r}
+Anova(m3)
+```
+
+```{r}
+boxcox(price~tax+mileage+years_sell2+model+engineSize,data=df[!df$mout=="MvOut.Yes",])
+```
+As we can see in the coxbox plot the lambda is a value near 0 so a log function will have to be applied to the target value to make a better relation with the variables.
+
+### Model 4: log(price) ~ mileage+tax+years_sell2 + model+engineSize 
+
+```{r}
+m4<-lm(log(price)~tax+mileage+years_sell2+model+engineSize,data=df[!df$mout=="MvOut.Yes",])
+summary(m4)
+par(mfrow=c(2,2))
+plot(m4)
+```
+The normality of the regression has improved thanks to the transfromation but there is a bad normal distribution for lower quantiles. Residuals are linear distributed. There is some influent data that will be removed at the end. 
+
+```{r}
+vif(m4)
+```
+We have good values for VIF, correlation doesn't have a big effect on our regression
+
+```{r}
+plot(allEffects(m4))
+AIC(m1,m2,m3,m4)
+```
+AIC function shows that the best fitted model is model 4 the last one because its AIC is the lower. We can see the positive linear relation between engine size and price too.
+
+
+```{r}
+anova(m4)
+```
+As the p-value of the test is less than 0.05 for all variables we can reject null hypothesis and for all chosen variables have effect on the prediciton of the target value.
+
+
+Finally we will check if adding the variables manufacturer and transmission can improve the model in a significant way. We can see that they does not add variability so we will not consider them to make the model more robust.
+
+```{r}
+m4aux<-lm(log(price)~tax+mileage+years_sell2+model+engineSize+manufacturer+transmission,data=df[!df$mout=="MvOut.Yes",])
+summary(m4aux)
+```
+
+
+## Adding interactions
+
+Once we have selected the model with covariates and factors, we will proceed to add interaction between all variables (including factors) and all factors and we will proceed to check which ones have more impact in the resulting model. 
+
+
+### Model 5
+
+```{r}
+m5<-lm(log(price)~(tax+mileage+years_sell2+engineSize+model+transmission+fuelType)*(engineSize+model+transmission+fuelType),data = df)
+m5<-step( m5, k=log(nrow(df)))
+```
+
+Our first model adding interactions is the model m5. At the end of the output of the step function we can see that the most important interactions are the next ones;  
+
+  *mileage:engineSize  
+  *model:fuelType 
+  *tax:transmission 
+  *years_sell2:fuelType 
+  *mileage:transmission 
+  *engineSize:model  
+  *engineSize:fuelType 
+  *mileage:fuelType 
+
+We can see that there is a correlation between factors and a correlation between a factor and a covariate as the statement asked. The resultant model, the proposed by the step function is the next one: 
+
+log(price) ~ tax + mileage + years_sell2 + engineSize + model + transmission + fuelType + tax:transmission + mileage:engineSize + mileage:transmission + mileage:fuelType + years_sell2:fuelType +  engineSize:model + engineSize:fuelType + model:fuelType
+    
+```{r}
+interaction.plot(df$years_sell2,df$fuelType,df$mileage)
+interaction.plot(df$engineSize,df$fuelType,df$tax)
+```
+
+We can see that the mean of mileage is bigger for older cars. Cars of the three different types behave in the same way. How much older they are more mileage they have.
+
+We can see that that the mean of tax grows with the engineSize for all types of typeFuel. Interaction is thus present between these three variables. We can see that for the hybrid cars the tax decreases a little bit for the medium engine cars but then for the big engine cars it increases to the same level of Diesel cars.
+
+
+```{r}
+AIC(m1,m2,m3,m4,m5)
+```
+
+We can see that the most explicative value of all the ones that we have created is the number 5 as it includes covariates, factors and the interactions proposed by the step method. Before finishing with the model selection we will analise influent data to try to make the residual linearity a little better. 
+
+log(price) ~ tax + mileage + years_sell2 + engineSize + model + transmission + fuelType + tax:transmission + mileage:engineSize + mileage:transmission + mileage:fuelType + years_sell2:fuelType +  engineSize:model + engineSize:fuelType + model:fuelType
+
+
+## Influent data and outliers
+
+During the realization of the analysis we have seen (in the first model) that multivariant outliers of the dataset have a negative impact on the independence on the residuals. What is more we have discovered some influential data that hava an impact on the data distributed in the first quantile. We will now proceed to remove this data from the analysis. 
+
+For the model 5, our last model, we can see that there are some values that have a big impact on the studentized values. We will proceed to extract them from the analysis and then check the normality of the residuals another time. 
+
+### Model 6
+
+```{r}
+m6<-lm(log(price) ~ tax + mileage + years_sell2 + engineSize + model + transmission + fuelType + tax:transmission + mileage:engineSize + mileage:transmission + mileage:fuelType + years_sell2:fuelType +  engineSize:model + engineSize:fuelType + model:fuelType ,data=df[df$mout=="MvOut.No",])
+```
+
+```{r}
+thhat <-3*length(coef(m6))/nrow(df);
+llhat <- which( hatvalues(m6) > thhat);
+df[llhat,]
+Boxplot(cooks.distance(m6))
+llcoo <- which( cooks.distance(m6) > 0.05);
+df[llcoo,]
+```
+
+Influential observations are those whose leverage is over 0.06. 117 observations satisfy this condition.
+Observations 1616, 1776, 2329, 3102, 3228 and 4742 are outliers for Cook’s distance (over 0.05). 
+
+## Conclusion
+
+The bestfitted model found for our data is the model 6 described in the previous section.
+
+```{r}
+AIC(m5, m6)
+Anova(m5,m6)
+marginalModelPlots(m6)
+```
+The shape of the model follows the data and the fitted values shows us a stronger model. Blue and red data are nearly superposed and follow the same function.
+
+# Description of Model Building process for prediction of binary response (Audi).
+
+In the second part of the assignament we will go through the process of creating a forecasting model for the prediction of the binary variable Audi. So our objective is to create a model that helps us to predict the probability of a certain input of data corresponds to an audi car or not. 
+
+## Split into train and test
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+# 80% train sample and 20% test sample
+set.seed(1234)
+llwork <- sample(1:nrow(df),round(0.80*nrow(df),0))
+
+dfall<-df
+df_train <- dfall[llwork,]
+df_test <-dfall[-llwork,]
+```
+
+## Binary Models: Using numerical explanatory variables
+
+```{r}
+res.cat <- catdes(df, num.var = which(names(df)=="Audi"))
+res.cat$quanti.var
+```
+Before starting with the model building process, we have executed the catdes method to try to visualize if there is a high correlation between the target variable and the numeric explanatory variables. We can reject the null hypothesis so there is  correlation with the binary variable with all the variables. 
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+ll<-which(df_train$years_sell2==0);ll
+df$years_sell2[ll]<-0.5
+
+ll<-which(df_train$tax==0);ll
+df$tax[ll]<-0.5
+
+ll<-which(df_train$mpg==0);ll
+df$mpg[ll]<-0.5
+
+ll<-which(df_train$mileage==0);ll
+df$mileage[ll]<-0.5
+```
+
+### Model 1: Audi ~ mgp+mileage+tax+years_sell2
+
+```{r}
+bm1<-glm(Audi~mileage+tax+mpg+years_sell2,family="binomial"(link = logit),data=df)
+summary(bm1)
+vif(bm1)
+Anova(bm1)
+```
+
+First of all we can see in the logistic regression output that according to the p-value, all four numeric variables are statistically significant. What is more the VIF value for the 4 variables is small and this support the idea that the four variables are significant to the model. We can see that all these continuous variables are important for this binary regression. The anova test suports the idea that the 4 variables are statistically significant for the prediction model construction. 
+
+### Model 2: Audi ~ mgp+mileage+tax
+
+We can see that years_sell2 has the biggest p-value, we will see if omitting this variable would change our model.
+
+```{r}
+bm2<-glm(Audi~mileage+tax+mpg,family="binomial"(link = logit),data=df);
+summary(bm2)
+AIC(bm1,bm2)
+anova(bm1,bm2)
+```
+
+We can see that the model bm2 is approximately as strong as bm1 with one less variable, we will then carry on with this model.
+
+### Model 3: Audi ~ mgp+mileage+years_sell2
+
+In order to see if removing years_sell2 instead of mpg was a goof idea, we check the results with the following regression bm4.
+
+```{r}
+bm3<-glm(Audi~mileage+tax+years_sell2,family="binomial"(link = logit),data=df);
+summary(bm3)
+AIC(bm2,bm3)
+```
+
+This shows us that we made the right choice at the beginning as the AIC value is better for bm2 and the p-value of years_sell2 is too high in bm3 which makes the years_sell2 variable not having a big role (the smallest role) in this regression
+
+In order to definitively validate our model, we are going the plot the residual plots. This will make us take our final decision
+
+```{r}
+residualPlots(bm2)
+residualPlots(bm3)
+```
+
+We can clearly see that the residuals in the bm3 model have a better shape
+
+For
+  • mileage:
+    – we see that the smooth is plain, so it is ok.
+    – the “weird” shapes that appear are because of the binary response model.
+  • Tax:
+    – we see that the smooth is plain, so it is ok.
+    – the “weird” shapes that appear are because of the binary response model.  
+  • Years_sell2 :
+    – we see that the smooth is plain, so it is ok.
+    – the “weird” shapes that appear are because of the binary response model
+ 
+  The overall shape of the linear predictor seems approximately plain, but as it was said in class, we can work
+  with unfitted values in the model
+  
+Our chosen model is the binary model 2.
+
+### Understanding the model chosen (model 2)
+```{r}
+plot(allEffects(bm2))
+```
+We can see that 
+  - As the mileage increases, the probability that tha car is an Audi between all the 4 brands increases. This show that Audi cars have a strong resistance to age.
+  -As the tax price increases, the probability that the car is an Audi decreases, this show that the Audi cars are not that tax consuming,
+  we must say though that the extreme values of tax aren't really too populated in order to give some shade to our interpretation
+   -As the mpg variable increases, the probability of being an Audi decreases.
+
+```{r}
+marginalModelPlots(bm2)
+```
+We can see that the data and the model are superposed.
+
+## Binary Models: Adding fators
+
+We will now add factors to our bm4 linear model.
+
+```{r}
+catdes(df,11)$test.chi2
+```
+
+The factors most related to Audi are mpg_d, fuelType, f. miles (we won't use it because we already have the mileage variable) and transmission. We will try to include them in our new model bm4.
+
+### Model 4: Audi~mileage+tax+mpg+fuelType+transmission+engineSize
+
+```{r}
+bm4<-glm(Audi~mileage+tax+mpg+fuelType+transmission+engineSize,family="binomial"(link = logit),data=df);
+summary(bm4)
+```
+
+We can see that the numeric variables continue to have a great impact on the model. Mileage is at the limit but we prefer to keep it instead of years_sell2 because gives our modal a better shape. We will not keep the factor fuelType because it does not have a good correlation with the target variable.
+
+### Model 5: Audi~mileage+tax+mpg+transmission+engineSize
+
+```{r}
+bm5<-glm(Audi~mileage+tax+mpg+transmission+engineSize,family="binomial"(link = logit),data=df);
+summary(bm5)
+AIC(bm4,bm5)
+anova(bm4,bm5)
+```
+We will choose the model 5 as the good one using covariates and factors. 
+
+## Binary model: Adding interactions
+
+### Model 6
+
+We will search for all the interactions between covariates and factors and between factors.
+
+```{r}
+bm6<-glm(Audi~(mileage+tax+mpg+transmission+engineSize)*(transmission+engineSize),family="binomial"(link = logit),data=df);
+summary(bm6)
+step(bm6)
+```
+
+
+The final model obtained executing the functionstep is the next one in wich we can see interactions between transmission and engine size and beteween some other covariates:
+Audi ~ mileage + tax + mpg + transmission + engineSize + mileage:transmission +     mileage:engineSize + tax:transmission + mpg:transmission + transmission:engineSize
+
+We can see that there is a high correlation between:
+  -mileage:transmissionf.Trans-SemiAuto 
+  -mpg:transmissionf.Trans-SemiAuto
+  -transmission:engineSize 
+  
+```{r}
+interaction.plot(df$transmission,df$engineSize,df$mileage)
+```
+
+We can see that SemiAuto cars are the ones with less mileage, automatic cars are the second one and finally, manual cars are the ones that have run more kilometers. 
+
+```{r}
+interaction.plot(df$fuelType,df$mpg_d,df$tax)
+```
+
+We won't care about the hybrid cars because they represent only a small preoportion of cars
+
+```{r}
+ll<-which(df$fuelType=="f.Fuel-Hybrid");length(ll)
+a<-length(ll)/nrow(df)
+```
+
+We can see that tax value decreases with the fueltype (Diesel to Petrol) for the most common cars (mpg_D between 0 and 53.3).
+
+
+## Influent data and outliers
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE}
+
+#model with all data 
+bm8<-glm(Audi~(mileage+tax+mpg+transmission+engineSize)*(transmission+engineSize),family="binomial"(link = logit),data=df);
+p <- length(bm8$coefficients)
+n <- length(bm8$fitted.values)
+llres <- which(abs(rstudent(bm8))>2.3);
+llhat <- which(hatvalues(bm8)>(3*(p/n)));
+llout<-which(abs(cooks.distance(bm8))>0.02);
+llrem<-unique(c(llout,llres));llrem
+
+#model without outliers and hish rstudent valies
+dfaux = df[df$mout=="MvOut.No",]
+bm9<-glm(Audi~(mileage+tax+mpg+transmission+engineSize)*(transmission+engineSize),family="binomial"(link = logit),data=dfaux[-llrem,]);
+```
+
+```{r}
+vif(bm9)
+summary(bm9)
+Anova(bm9)
+influencePlot(bm9)
+marginalModelPlots(bm9)
+outlierTest(bm9)
+```
+
+One we have included interactions in the model we have proceed to remove all outliers and most influent data to imporve the results of the predictor output.
+
+## Confusion table analysis
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE }
+bm7<-glm(Audi~(mileage+tax+mpg+transmission+engineSize)*(transmission+engineSize),family="binomial"(link = logit),data=df);
+
+library(ResourceSelection)
+pred_test <- predict(bm7, newdata=df_test, type="response")
+ht <- hoslem.test(df_test$Audi, pred_test)
+cbind(ht$observed, ht$expected)
+# ROC Curve
+
+library("ROCR")
+library("AUC")
+
+#dadesroc<-prediction(pred_test,df_test$Audi)
+#performance(dadesroc,"auc",fpr.stop=0.05)
+#par(mfrow=c(1,2))
+#plot(performance(dadesroc,"err"))
+#par(mfrow=c(1,1))
+#plot(performance(dadesroc,"tpr","fpr"))
+#abline(0,1,lty=2)
+
+library(cvAUC)
+AUC(pred_test,df_test$Audi)
+```
+
+
+```{r}
+treshold <- 0.5
+audi.est <- ifelse(pred_test<treshold,0,1)
+tt<-table(audi.est,df_test$Audi);tt
+100*sum(diag(tt))/sum(tt)
+100*(tt[2,2]/(tt[2,1]+ tt[2,2])) # precision
+prob.audi <- bm7$fit
+audi.est <- ifelse(prob.audi<0.5,0,1)
+tt<-table(audi.est,df$Audi);tt
+100*tt[1,1]/sum(tt)
+100*(tt[2,2]/(tt[2,1]+ tt[2,2])) # precision
+```
+
+After applying our selected model with the test data, we can see the resultant confusion matrix. We can see that the model has an accuracy of 80%. This means that the 80% of the data predicted is correct. We can see that the model has nearly a 70% of precision. 70% of the times that a car is an Audi the model predicts it correctly. The model loses precision when predicting positives because there are much more non audi cars than audi cars. This means that the model is better predicting non adui cars than audi cars. 
+
+
+# Finally, save the data
+```{r}
+save.image("EloiOthman_finalDel.RData")
+```
+

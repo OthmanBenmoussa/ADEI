@@ -1,0 +1,647 @@
+---
+title: "Project 1"
+output:
+  pdf_document: default
+  html_document: default
+date: '2022-03-13'
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+## Loading the Dataset
+
+```{r}
+
+# Clear plots
+if(!is.null(dev.list())) dev.off()
+
+# Clean workspace
+rm(list=ls())
+
+setwd("/Users/othmanbenmoussa/Desktop/FIB/ADEI/LAB0")
+
+
+# Lecture of DataFrames:
+df1 <- read.table("audi.csv",header=T, sep=",")
+df1$manufacturer <- "Audi"
+df2 <- read.table("bmw.csv",header=T, sep=",")
+df2$manufacturer <- "BMW"
+df3 <- read.table("merc.csv",header=T, sep=",")
+df3$manufacturer <- "Mercedes"
+df4 <- read.table("vw.csv",header=T, sep=",")
+df4$manufacturer <- "VW"
+
+# Union by row:
+df <- rbind(df1,df2,df3,df4)
+dim(df)  # Size of data.frame
+str(df) # Object class and description
+names(df) # List of variable names
+
+### Use birthday of 1 member of the group as random seed:
+set.seed(11041998)
+# Random selection of x registers:
+sam<-as.vector(sort(sample(1:nrow(df),5000)))
+head(df)  # Take a look to the first rows/instances (6 rows)
+df<-df[sam,]  # Subset of rows _ It will be my sample
+rownames(df) <- 1:nrow(df)
+
+#Remove original datasets
+rm(df1)
+rm(df2)
+rm(df3)
+rm(df4)
+
+#Keep information in an .Rdata file:
+save(list=c("df"),file="MostraCotxesLab1.RData")
+```
+
+## Factors: Levels coding
+
+```{r}
+names(df)
+```
+
+## Add packages
+```{r}
+# Load Required Packages: to be increased over the course
+options(contrasts=c("contr.treatment","contr.treatment"))
+
+requiredPackages <- c("effects","FactoMineR","car", "factoextra","RColorBrewer","ggplot2","dplyr","ggmap","ggthemes","knitr")
+
+#use this function to check if each package is on the local machine
+#if a package is installed, it will be loaded
+#if any are not, the missing package(s) will be installed and loaded
+package.check <- lapply(requiredPackages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+#verify they are loaded
+search()
+```
+
+## Transformation into Factors for the non numerical Variables
+
+```{r}
+summary(df)
+names(df)
+```
+
+There are 4 factor variables (non numerical): model, transmission, fueltype and manufacturer
+
+## Transformation into factors for the non numerical variables
+```{r}
+# For the model variable
+df$model<-factor(paste0(df$manufacturer,"-",df$model))
+levels(df$model)
+```
+
+```{r}
+#for the transmission variable
+df$transmission <- factor( df$transmission )
+levels( df$transmission )
+df$transmission <- factor( df$transmission, levels = c("Manual","Semi-Auto","Automatic"),labels = paste0("f.Trans-",c("Manual","SemiAuto","Automatic")))
+```
+
+
+
+```{r}
+#for the fueltype value
+df$fuelType <- factor(df$fuelType)
+levels(df$fuelType)
+df$fuelType <- factor( df$fuelType, levels = c("Diesel","Petrol","Hybrid"), labels = paste0("f.Fuel-",c("Diesel","Petrol","Hybrid")))
+```
+
+
+```{r}
+#for the manufacturer variabl
+df$manufacturer <- factor(df$manufacturer)
+```
+
+## Discretization of variables
+# For this discretization: 4 levels are considered, from the quartiles
+```{r}
+####    Discretization of price
+summary(df$price)
+Boxplot(df$price)
+
+quantile(df$price,seq(0,1,0.25),na.rm=TRUE)
+
+df$aux<-factor(cut(df$price,breaks=c(min(df$price),13995,19498,2690, max(df$price)),include.lowest = T ))
+summary(df$aux)
+tapply(df$price,df$aux,median)
+df$f.price<-factor(cut(df$price/1000,breaks=c(0,15,20,26, 90),include.lowest = F ))
+levels(df$f.price)<-paste("f.price-",levels(df$f.price),sep="")
+table(df$f.price,useNA="always")
+```
+
+```{r}
+####    Discretization of mileage
+summary(df$mileage)
+Boxplot(df$mileage)
+
+quantile(df$mileage,seq(0,1,0.25),na.rm=TRUE)
+
+df$aux<-factor(cut(df$mileage,breaks=c(0,5891,16908,33981,323000),include.lowest = T ))
+summary(df$aux) # We want to know the number of cars in each interval
+tapply(df$mileage,df$aux,median) #gives us the median value of the mileage of the car in the four intervals
+df$f.miles<-factor(cut(df$mileage/1000,breaks=c(0,6,17,34, 323),include.lowest = T )) # We divide by 1000 for an easier use
+levels(df$f.miles)<-paste("f.miles-",levels(df$f.miles),sep="")
+table(df$f.miles,useNA="always")
+```
+
+
+```{r}
+####    Discretization of tax
+
+summary(df$tax)
+Boxplot(df$tax)
+
+quantile(df$tax,seq(0,1,0.25),na.rm=TRUE)
+quantile(df$tax,seq(0,1,0.1),na.rm=TRUE)
+
+
+df$f.tax<-factor(cut(df$tax,breaks=c(0, 125, 144.9,150.1, 570),include.lowest = T ))
+summary(df$f.tax) # We want to know the number of cars in each interval
+tapply(df$tax,df$f.tax,median)#gives us the median value of the tax of the car in the four intervals
+levels(df$f.tax)<-paste("f.tax-",levels(df$f.tax),sep="")
+table(df$f.tax,useNA="always")
+
+```
+We see that the intervals are not equally distributed for the tax variable, because there is a concentration of the values at the 150 value
+
+```{r}
+## Discretization of mpg
+
+summary(df$mpg)
+Boxplot(df$mpg)
+
+quantile(df$mpg,seq(0,1,0.25),na.rm=TRUE)
+quantile(df$mpg,seq(0,1,0.1),na.rm=TRUE)
+
+
+df$mpg_d<-factor(cut(df$mpg,breaks=c(0,44.8,53.3,61.4 , 470.8),include.lowest = T ))
+summary(df$mpg_d) # We want to know the number of cars in each interval
+tapply(df$mpg,df$mpg_d,median)#gives us the median value of the tax of the car in the four intervals
+levels(df$mpg_d)<-paste("mpg_d-",levels(df$mpg_d),sep="")
+table(df$mpg_d,useNA="always")
+
+```
+```{r}
+## Discretization of engineSize
+
+summary(df$engineSize)
+Boxplot(df$engineSize)
+
+quantile(df$engineSize,seq(0,1,0.25),na.rm=TRUE)
+quantile(df$engineSize,seq(0,1,0.1),na.rm=TRUE)
+
+
+df$eng_d<-factor(cut(df$mpg,breaks=c(0,44.8,53.3,61.4 , 470.8),include.lowest = T ))
+summary(df$eng_d) # We want to know the number of cars in each interval
+tapply(df$engineSize,df$eng_d,median)#gives us the median value of the tax of the car in the four intervals
+levels(df$eng_d)<-paste("eng_d-",levels(df$eng_d),sep="")
+table(df$eng_d,useNA="always")
+
+```
+
+### Graphical Description of numeric data
+```{r}
+
+# Histograms:
+par(mfrow=c(1,1)) 
+hist(df$price)
+
+
+# Dotplot:
+par(mfrow=c(1,1))
+stripchart(df$price,method="stack")
+
+
+# Boxplots (two ways):
+par(mfrow=c(1,2))
+boxplot(df$price,col="blue",horizontal = TRUE, pch=19,labels=df$price)
+Boxplot(df$price,col="blue",main=" Boxplot price - price Label for Outliers",labels=df$price)
+
+
+```
+Barplots and Pie charts
+```{r}
+#Barplots and pie charts:
+par(mfrow=c(1,2))
+barplot(table(df$transmission))
+pie(table(df$transmission))
+par(mfrow=c(1,2))
+barplot(table(df$manufacturer))
+pie(table(df$manufacturer))
+```
+
+
+```{r}
+barplot(table(df$year),legend.text = "Year purchase repartition between the cars")
+```
+
+```{r}
+par(mfrow=c(1,2))
+barplot(table(df$transmission))
+```
+
+
+## 2)  Error counting
+
+Useful Functions for the error counting
+```{r}
+
+# Mout <- which((df$tax < var_out$mouti)|(df$tax > var_out$mouts))
+
+# Some useful functions
+calcQ <- function(x) {
+  s.x <- summary(x)
+  iqr<-s.x[5]-s.x[2]
+  list(souti=s.x[2]-3*iqr, mouti=s.x[2]-1.5*iqr, min=s.x[1], q1=s.x[2], q2=s.x[3], 
+       q3=s.x[5], max=s.x[6], mouts=s.x[5]+1.5*iqr, souts=s.x[5]+3*iqr ) }
+
+rep(0,nrow(df))
+countNA <- function(x) {
+  mis_x <- NULL
+  for (j in 1:ncol(x)) {mis_x[j] <- sum(is.na(x[,j])) }
+  mis_x <- as.data.frame(mis_x)
+  rownames(mis_x) <- names(x)
+  mis_x
+  # Whats' the utility of the following part
+  mis_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {mis_i <- mis_i + as.numeric(is.na(x[,j])) }
+  list(mis_col=mis_x,mis_ind=mis_i) }
+#for (j in 1:ncol(df)) { sum(is.na(df[,j])) }
+
+#sum(is.na(df[,7]))$
+
+countX <- function(x,X) {
+  n_x <- NULL
+  for (j in 1:ncol(x)) {n_x[j] <- sum(x[,j]==X) }
+  n_x <- as.data.frame(n_x)
+  rownames(n_x) <- names(x)
+  nx_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {nx_i <- nx_i + as.numeric(x[,j]==X) }
+  list(nx_col=n_x,nx_ind=nx_i) }
+names(df)
+
+
+
+```
+
+```{r}
+#######################################################
+imis<-rep(0,nrow(df))  # rows - cars
+jmis<-rep(0,ncol(df))  # columns - variables
+######################################################
+#missing values
+mis1<-countNA(df) # Counts the errors for each variable
+mis1$mis_ind # Number of missings for the current set of cars
+mis1$mis_col # Number of missings for the current set of variables
+
+#######################################################
+#outliers
+iouts<-rep(0,nrow(df))  # rows - cars
+jouts<-rep(0,ncol(df))  # columns - variables
+######################################################
+
+#######################################################
+#errors
+ierrs<-rep(0,nrow(df))  # rows - cars
+jerrs<-rep(0,ncol(df))  # columns - variables
+######################################################
+```
+
+## Per Column
+
+### Missing values per variable
+```{r}
+countNA(df)
+
+```
+
+```{r}
+mis1<-countNA(df)
+imis<-mis1$mis_ind 
+imis
+```
+
+
+# Checking for errors for each variable
+
+We see that there are som non electrical cars that have an engine size of 0, it is an error and we must thus delete these cars from our database
+
+```{r}
+df[which(df[,"engineSize"]==0),]
+```
+We now have the cars with wich have to be deleted, but we must have the indexes of the cars in the table
+
+```{r}
+sel<-which(df$engineSize==0)# captures the number of the row
+
+ierrs<-rep(0,nrow(df)) #ierrs is the table of the cars with errors
+ierrs[sel]<-ierrs[sel]+1
+jerrs[9]<-length(sel) #jerrs gives us the total number of errors in the column
+df[sel,"engineSize"]<- NA
+#We replaced 0 by NA in order to avoid taking into account these values
+jerrs
+```
+
+
+Cars which pay 0 in Tax are also viewed as errors
+```{r}
+sel<-which(df$tax==0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[7]<-length(sel)
+df[sel,"tax"]<- NA
+jerrs
+```
+
+```{r}
+sum(is.na(df[,7]))
+```
+
+There are 193 cars that didn't pay taxes, which is not normal
+
+
+We will also add as errors the cars that are bought for more than 1 year and have recorded less than 5000km
+```{r}
+sel<-which(df$mileage<=5000 & df$year<2021)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[5]<-length(sel)
+df[sel,"mileage"]<- NA
+jerrs
+```
+
+
+
+```{r}
+barplot(table(ierrs),main="Errors per individual Barplot",col = "Blue")
+```
+The majority of the cars don't have more than an error
+
+
+
+```{r}
+barplot(table(jerrs),main="errors per variable Barplot",col = "DarkSlateBlue")
+```
+
+
+## Outliers 
+
+We will look at the Outliers now
+
+
+ price variable
+```{r}
+
+# We will exclude the cars whose price is more than 70 000
+var_out<-calcQ(df$price)
+llout<-which(df$price>70000)
+length(llout)
+iouts[llout]<-iouts[llout]+1
+jouts[3]<-length(llout)
+df[llout,"price"]<- NA
+jouts
+```
+
+
+```{r}
+barplot(table(df$year),legend.text = "Year purchase repartition between the cars")
+```
+We see that there are practically no cars purchased before 2013, we will consider the cars bought before as outliers and factorize the variable age
+
+```{r}
+set<-which(df$year<2013)
+length(set)
+iouts[set]<-iouts[set]+1
+df[set,"year"]<- NA
+df$year_f <- factor( df$year, levels = c("2013","2014","2015","2016","2017","2018","2019","2020"),labels = paste0("f.year-",c("2013","2014","2015","2016","2017","2018","2019","2020")))
+pie(table(df$year_f))
+
+```
+
+```{r}
+barplot(df$mpg)
+
+```
+We see that there are some unusual values (those whith mpg>100), we will consider them as outliers
+
+```{r}
+set<-which(df$mpg>100)
+iouts[set]<-iouts[set]+1
+length(set)
+jouts[8]<-length(set)
+df[set,"mpg"]<- NA
+jouts
+
+```
+
+There are 60 cars that have an mpg superior to 100, our intutiton was thus right
+
+```{r}
+barplot(df$mileage)
+```
+We see also that the cars with more than 150 000 km are minoritary, we will consider them as outliers 
+
+```{r}
+set<-which(df$mileage>150000)
+length(set)
+iouts[set]<-iouts[set]+1
+jouts[5]<-length(set)
+df[set,"mileage"]<- NA
+jouts
+
+```
+
+Table of Outliers per individual Barplot
+```{r}
+barplot(table(iouts),main="Outliers per individual Barplot",col = "DarkSlateBlue")
+```
+
+```{r}
+barplot(table(jouts),main="Outliers per column Barplot",col = "DarkSlateBlue")
+```
+### Number of missing values of each variable (with ranking)
+```{r}
+missings_ranking_sortlist <- sort.list(mis1$mis_col, decreasing = TRUE)
+for (j in missings_ranking_sortlist) {
+  print(paste(names(df)[j], " : ", mis1$mis_col$mis_x[j]))
+}
+```
+
+### Number of outliers per each variable
+```{r}
+errors_ranking_sortlist <- sort.list(jouts, decreasing = TRUE)
+for (j in errors_ranking_sortlist) {
+  if(!is.na(names(df)[j])) print(paste(names(df)[j], " : ", jouts[j]))
+}
+```
+## Number of errors per each variable
+
+```{r}
+errors_ranking_sortlist <- sort.list(jerrs, decreasing = TRUE)
+for (j in errors_ranking_sortlist) {
+  if(!is.na(names(df)[j])) print(paste(names(df)[j], " : ", jerrs[j]))
+}
+```
+
+# Create variable adding the total number missing values, outliers and errors Per individual
+```{r}
+total_missings <- 0; total_outliers <- 0; total_errors <- 0; for (m in imis) {total_missings <- total_missings + m}
+for (o in iouts) {total_outliers <- total_outliers + o}
+for (e in ierrs) {total_errors <- total_errors + e}
+```
+
+```{r}
+total_missings
+```
+
+
+```{r}
+total_outliers
+```
+
+```{r}
+total_errors
+```
+
+## Creating a new variable total with the total missing,outliers and error values for each individual
+```{r}
+
+## Number of missing values for each individual
+
+countNA_row <- function(x) {
+  #mis_x <- NULL
+  #for (j in 1:nrow(x)) {mis_x[j] <- sum(is.na(x[j,])) }
+  #mis_x <- as.data.frame(mis_x)
+  #rownames(mis_x) <- 1:nrow(x)
+  mis_i <- rep(0,ncol(x))
+  for (j in 1:nrow(x)) {mis_i[j]<- sum(is.na(x[j,])) }
+  mis_i}
+
+
+```
+As all the previous errors, outliers and initial missing values have been converted to missing values by addition, we will just count the number of missing values in each row in order to find the total number of (errors,outliers and initial missing values).
+We will then create the factor total that indicates this number
+
+```{r}
+
+mis1<-countNA_row(df)
+#mis1=countNA_row(df)[, 1]
+mis1
+```
+
+
+```{r}
+df$total<-mis1
+```
+We consequently added the factor total that indicates the amount of errors,outliers and 
+
+```{r}
+#vars_quantitatives<-names(df)[c(1:,4:7,18)]
+data<- df[,c(2:3,5,7,9,18)]
+data
+res <- cor(data, use = "complete.obs")
+res
+```
+
+
+
+```{r}
+library(corrplot)
+corrplot(res)
+```
+there is a high correlation between, mileage and year ,enginesize and price, year and price.
+
+There is practically no correlation between mileage and enginesize, mpg and mileage, tax and mileage.
+
+We don't find a  correlation between the total variable and the other variables
+
+## Compute for every group of individuals (group of age, etc, …) the mean of missing/outliers/errors values. Rank the groups according the computed mean
+
+
+#### Engine Size
+
+```{r}
+
+df$engSizeCat<-0
+df$engSizeCat[df$engineSize>1]<-1
+df$engSizeCat[df$engineSize>2]<-2
+df$engSizeCat[df$engineSize>3]<-3
+df$engSizeCat<-factor(df$engSizeCat,labels=paste("Eng - ",c("Petit","Mitjà","Gran","Molt gran")))
+barplot(table(df$engSizeCat))
+```
+### Computing the mean of missing/outliers/errors values for each category
+
+No se como codar la funcion, la idea es calcular el medio de errores para cada categoria (petit,mitja,gran,molt gran)
+despues podemos hacer lo mismo con los precios
+```{r}
+list
+for (j in 1:nrow(x)) {(if df$engSizeCat==3 mis_i[j]<- sum(is.na(x[j,])) }
+  mis_i}
+```
+
+
+# Imputation
+
+```{r}
+library(missMDA)
+```
+
+
+```{r}
+# #vars_quantitatives<-names(df)[c(6:16, 18:19,2)]
+vars_quantitatives<-names(df)[c(2:3,5,7,9,18)]
+# we do not include MTA_tax (14), Tolls_amount(16) nor improvement_surcharge(18) 
+summary(df[,vars_quantitatives])
+```
+
+```{r}
+res.imputation<-imputePCA(df[,vars_quantitatives],ncp=5)
+summary(res.imputation$completeObs)
+```
+All the NA's have been removed
+```{r}
+par(mfrow=c(1,2))
+hist(df$tax)
+hist(res.imputation$completeObs[,"tax"])
+```
+```{r}
+par(mfrow=c(1,2))
+hist(df$price)
+hist(res.imputation$completeObs[,"price"])
+```
+```{r}
+par(mfrow=c(1,2))
+hist(df$mileage)
+hist(res.imputation$completeObs[,"mileage"])
+```
+```{r}
+par(mfrow=c(1,2))
+hist(df$mpg)
+```
+We proceed to impute all NAs in our numerical variables that are stored in: res.imputation$completeObs
+```{r}
+df[,"price"] <- res.imputation$completeObs[,"price"] 
+df[,"mileage"] <- res.imputation$completeObs[,"tax"] 
+df[,"total"] <- res.imputation$completeObs[,"total"]
+no funciona con mpg no se porque
+
+```
+
+```{r}
+summary(res.imputation$completeObs)
+```
+
+### Ahora hay que hacer lo mismo con las variables qualitativas
+
+# Profiling

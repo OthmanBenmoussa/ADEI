@@ -1,0 +1,952 @@
+---
+title: "Deliverable 2"
+author: "Othman Benmoussa & Eloi Cruz"
+date: \today
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  html_document:
+    toc: no
+    toc_depth: '4'
+  word_document:
+    toc: no
+    toc_depth: '4'
+geometry: left=1.9cm,right=1.9cm,top=1.25cm,bottom=1.52cm
+fontsize: 18pt
+subtitle: 'Lab 2 - PCA, CA and Clustering'
+classoption: a4paper
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Load Required Packages: to be increased over the course
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE }
+# Load Required Packages: to be increased over the course
+options(contrasts=c("contr.treatment","contr.treatment"))
+
+requiredPackages <- c("effects","FactoMineR","car","missMDA","mvoutlier","chemometrics", "factoextra","RColorBrewer","ggplot2","dplyr","ggmap","ggthemes","knitr")
+
+#use this function to check if each package is on the local machine
+#if a package is installed, it will be loaded
+#if any are not, the missing package(s) will be installed and loaded
+package.check <- lapply(requiredPackages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+#verify they are loaded
+search()
+
+```
+
+##  Load Processed data
+
+```{r, results = 'hide', message=FALSE, error=FALSE, warning=FALSE }
+# Clear plots
+if(!is.null(dev.list())) dev.off()
+
+# Clean workspace
+rm(list=ls())
+setwd("/Users/othmanbenmoussa/Downloads/ADEI-master-79098fa31eef4ee27f4e3f58437a95dcf6a573c1/Lab3PCA")
+#filepath("/Users/othmanbenmoussa/Downloads/ADEI-master-79098fa31eef4ee27f4e3f58437a95dcf6a573c1/Lab3PCA/")
+#filepath<-"/"Users/othmanbenmoussa/Desktop/FIB/ADEI/LAB0
+#setwd("C:/Users/Eloi/Documents/ADEI/ADEI/Lab3PCA/")
+#filepath<-"C:/Users/Eloi/Documents/ADEI/ADEI/Lab3PCA/"
+# green_tripdata_2016-01)
+
+load("MyOldCars-5000Clean.RData")
+options(contrasts=c("contr.treatment","contr.treatment"))
+
+```
+
+We assume that NA are not present in the variables. Our working dataframe is already clean. 
+
+# Principal Component Analysis
+
+In this section we do the principal component analysis to reduce the number of variables that we are using to analize the data. 
+
+```{r}
+#Reasignation of variables because there were some errors in the first lab
+vars_con<-names(df)[c(5,7,8,14)]
+vars_dis<-names(df)[c(1,2,4,6,9,10, 12,13,15,16,17)]
+vars_res<-names(df)[c(3,11)]
+
+
+
+#Remove remaining NA's
+df = df[complete.cases(df),]
+
+#Calculate the PCA
+res.pca<-PCA(df[,c(vars_res, vars_dis,vars_con)],quali.sup=c(2:13),quanti.sup= c(1)) 
+```
+
+
+```{r}
+#library(FactoMineR)
+#plot.PCA(res.pca,choix=c("var"),axes=c(1,2))
+```
+
+First of all we can interpret the result of the execution of the PCA function. We can see that the first dimension created contains a variance of 51% of the observations and that the second dimension created contains a variance of the 25% of the observations. We know that variables that conform a 90 degree angle are not related. Dimensions in the same direction are related. As we can see mileage is very positively strong related to the age of the car. The consumption of the car is inverse related to the tax. There is no relation between the tax or mpg and the mileage and the age. What is more cars with a lot of mileage or that are very old are cheaper than cars that are new.  
+
+
+```{r}
+# Multivariant outliers should be included as supplementary observations
+#ll <- which( df$mout == "YesMOut")
+#res.pca<-PCA(df[,c(vars_res, vars_dis, vars_con)],quali.sup=c(2:13),quanti.sup= c(1), ind.sup = ll )
+```
+
+
+## Eigenvalues and dominant axes analysis. How many axes we have to interpret according to Kaiser and Elbow's rule?
+
+```{r}
+round(res.pca$eig,2)
+barplot(res.pca$eig[,1],main="valors dims",names.arg=paste("dim",1:nrow(res.pca$eig)))
+sum(res.pca$eig[,1])
+```
+
+In one hand, According to Kaiser criteria the PCs with eignvalue greater than 1 have more variance that the original values and for this reason the axes that we have to leave are the ones with a value less than 1. Using this criteria we will have to interpret only two axes.
+
+In the other hand, according to the elbow rule criteria we have to choose before the line flaterns out, so we will choose two dimensions too.
+
+```{r}
+
+plot(res.pca$eig[,1],main="Elbow rule", type="b", pch = 19, col = "red")
+
+```
+
+
+
+## Individuals point of view. Are they any individuals "too contributive"?
+
+
+```{r}
+fviz_pca_ind(res.pca, col.ind="contrib", geom = "point") #+scale_color_gradient2(low="darkslateblue", mid=“white", high="red", midpoint=0.40)
+ 
+```
+
+We can see that there are individuals that are too contributive, especially at the extremes parts of the two dimensions. Let's understand them better.
+
+### Extreme Individuals
+We will leave just the extreme values in the following plots according to each of the two dimensions
+```{r}
+rang<-order(res.pca$ind$coord[,1])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+We notice that the extreme models are BMW i3. We can think that they don't follow the same characteristics as others because of their engine which is hybrid, which makes them extreme.
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+Mercedes X class is a big car with a big tax value, a very high mileage and a high price, this makes it a unusual model that doesn't follow the usual distribution.
+
+In dimension 2
+We will 
+```{r}
+rang<-order(res.pca$ind$coord[,2])
+contrib.extremes<-c(row.names(df)[rang[1]], row.names(df)[rang[length(rang)]])
+contrib.extremes<-c(row.names(df)[rang[1:10]], row.names(df) [rang[(length(rang)-10):length(rang)]])
+fviz_pca_ind(res.pca, select.ind = list(names=contrib.extremes))
+```
+
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[length(rang)]]), 1:19]
+```
+
+```{r}
+df[which(row.names(df) %in% row.names(df)[rang[1]]),1:19]
+```
+
+Detection of multivariant outliers and influent data.
+
+Since we’ve commented before that we don’t consider multivariate outliers, no action should be taken here.
+
+## Interpreting the axes: Variables point of view coordinates, quality of representation, contribution of the variables
+
+```{r}
+round(cbind(res.pca$var$coord[,1:2],res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+round(cbind(res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+# dimdes easies this description from the variables
+res.des<-dimdesc(res.pca)
+## #
+
+res.des$Dim.1$quanti
+
+## # we can need more than 2 axes to have a good representation of the clouds
+#plot.PCA(res.pca,choix=c("ind"),cex=0.8)
+#plot.PCA(res.pca,choix=c("ind"),invisible=c("quali"),axes=c(3,4))
+plot.PCA(res.pca,choix=c("var"),axes=c(3,4))
+```
+
+We cansee that this dimensions reprensent a new type of individuals because the relation betweeen distance and years sell is contrary to what we waw in the first PCA with dimensions 1 and 2. Tax and mpg are correlated in a positive way too despite what we saw in the first graphic.
+
+```{r}
+res.des <- dimdesc(res.pca)
+```
+
+```{r}
+ fviz_contrib(res.pca, fill = "darkslateblue" , color = "darkslateblue", choice = "var", axes = 1, top = 5)
+```
+We see that price and mileage are the most contributieve to the first dimension.
+```{r}
+fviz_contrib(res.pca, fill = "darkslateblue", color = "darkslateblue", choice = "var", axes = 2, top = 5)
+```
+We see that mpg and mileage are the most contributive to the second dimension.
+
+# Hierarchial Clustering
+
+```{r}
+res.hcpc <- HCPC(res.pca,nb.clust = 4, order = TRUE)
+#res.hcpc <- HCPC(res.pca,nb.clust = 2, order = TRUE)
+```
+Note: If we chose the default number of cluster it would be 3, as we can guess from the inertia reduction plot. 
+In our case, due to the amount of data we have and when we reduce the clusters to 3, it gives us two big clusters and a small one (the black one above)which doesn't contain much cars and informations. Choosing four clusters keeps that small cluster but makes the two initial big clusters divide into three big clusters which is much more interesting than only dealing with two big clusters.
+
+## Description of clusters
+### Number of observations in each cluster:
+```{r}
+table(res.hcpc$data.clust$clust)
+```
+
+We see that the first cluster doesn't represent many vehicles as we explained before, the three other cluser are well represented which is interesting.
+
+```{r}
+barplot(table(res.hcpc$data.clust$clust), col="darkslateblue", border="darkslateblue", main="[hierarchical] #observations/cluster")
+```
+
+```{r}
+res.hcpc$desc.var$test.chi2
+```
+
+
+for model and year: df>90. The distributions follows a normal low
+We can see that price,age and tax constitute the main characterizes of the clusters.
+
+Next, we want to see for each cluster which are the categories that characterize them.The clusters that contain more individuals are the first, the second and the fourth one. Cluster number 4 has less individuals. We proceed to analyze them.
+
+### Description of the clusters with the qualitative variables:
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.hcpc$desc.var$category 
+quali_var_decription_1<-res.hcpc$desc.var$category 
+```
+
+
+
+
+Cluster 1:
+  -> The cluster 1 only contains the BMW i3 model
+Cluster 2:
+   -> This cluster almost only contains the smallest *tax_pay* (98%), 76% of its cars are in the cheapest category *Segement D* and 92% are *Semi Nou*
+Cluster 3:
+   -> This cluster contains *mid priced* vehicules (Segment B and Segment C) and 86% of the vehicules the pay the *most taxes*
+Cluster 4:
+  ->This cluster contains almost all the most expensive cars (*price*: Segment A), they represent 75% of the cars of this cluster. These cars are in the middle category for *tax_pay* (145-150) and are in the *age* category: Molt Nou
+
+  
+
+### Description of the clusters with the quantitative variables:
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.hcpc$desc.var$quanti
+quanti_var_decription_1<-res.hcpc$desc.var$quanti
+```
+Cluster 1:
+  -> The first cluster contains cars with a huge *mpg* and an above average *tax* pay, we can thus think of the Hybrid cars such as the BMW i3.
+Cluster 2:
+   -> The second cluster represents cars that are cheap, have a low *tax_pay*, an above average *mpg* and an the biggest *mileage*. These are the second most common cars as they used to be effective but are turning *old*.
+Cluster 3:
+   -> The third cluster represents the most cars as the *mileage* and *mpg* are approximately near the average, the car seem to be of a diesel nature as the *tax* is high
+Cluster 4:
+  ->The fourth cluster represents ¨*new* cars that are pretty *expensive*.
+
+### The description of the clusters by the individuals
+
+```{r}
+res.hcpc$desc.ind$para
+```
+
+What we obtain are the more representative individuals,paragons, for each cluster. We get the rownames of each paragon in every single cluster.
+
+```{r}
+res.hcpc$desc.ind$dist
+```
+
+```{r}
+para1<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[1]]))
+dist1<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[1]]))
+para2<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[2]]))
+dist2<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[2]]))
+para3<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[3]]))
+dist3<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[3]]))
+para4<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$para[[4]]))
+dist4<-which(rownames(res.pca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[4]]))
+
+```
+
+```{r}
+plot(res.pca$ind$coord[,1],res.pca$ind$coord[,2],col="grey50",cex=0.5,pch=16)
+points(res.pca$ind$coord[para1,1],res.pca$ind$coord[para1,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist1,1],res.pca$ind$coord[dist1,2],col="chartreuse3",cex=1,pch=16)
+points(res.pca$ind$coord[para2,1],res.pca$ind$coord[para2,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist2,1],res.pca$ind$coord[dist2,2],col="darkorchid3",cex=1,pch=16)
+points(res.pca$ind$coord[para3,1],res.pca$ind$coord[para3,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist3,1],res.pca$ind$coord[dist3,2],col="firebrick3",cex=1,pch=16)
+points(res.pca$ind$coord[para4,1],res.pca$ind$coord[para4,2],col="blue",cex=1,pch=16)
+points(res.pca$ind$coord[dist4,1],res.pca$ind$coord[dist4,2],col="palevioletred3",cex=1,pch=16)
+```
+
+## Partition quality
+We are going to evaluate the partition quality.
+
+### Gain in inertia (in %)
+```{r}
+# ( between sum of squares / total sum of squares ) * 100
+((res.hcpc$call$t$within[1]-res.hcpc$call$t$within[5])/res.hcpc$call$t$within[1])*100
+```
+
+The quality of this reduction if of 73.45%.
+
+In case we wanted to achieve an 80% of the clustering representativity we would need 10 clusters.
+```{r}
+((res.hcpc$call$t$within[1]-res.hcpc$call$t$within[10])/res.hcpc$call$t$within[1])*100
+```
+
+### Save the results into dataframe
+```{r}
+res.hcpc$call$t$inert.gain[1:5] 
+df$hcpck<-res.hcpc$data.clust$clust
+```
+
+# K-means Classification
+
+```{r}
+res.pca <- PCA(df[,c(vars_con,vars_dis)], scale. = T,quali.sup=c(5:15))
+ppcc<-res.pca$ind$coord[,1:2] # We choose the two first  principal components as per kaiser
+summary(ppcc)
+dim(ppcc)
+```
+
+We will estimate the optimal number of clusters
+```{r}
+#library("factoextra")
+#fviz_nbclust(ppcc, kmeans, method = "gap_stat") 
+```
+
+## Classification
+We will compute, dist,  a matrix which shows the distances to each one of the clusters
+```{r}
+#d<-dist(ppcc) # coordenates are real - Euclidean metric
+#kc<-kmeans(d,3,iter.max=30,trace=TRUE) #calclulate the distances, into a matrix
+#kc
+#kc<-kmeans(dist,3,iter.max=30,trace=TRUE)
+set.seed(123)
+kc <- kmeans(ppcc, 3, nstart = 25)
+```
+
+
+```{r}
+df$claKM<-0
+df$claKM<-kc$cluster
+df$claKM<-factor(df$claKM)
+barplot(table(df$claKM),col="darkslateblue",border="darkslateblue",main="[k- means]#observations/cluster")
+```
+
+
+```{r}
+fviz_cluster(kc,ppcc, ellipse.type = "norm")
+```
+To have a better perception of the clusters:
+
+```{r}
+# Change the color palette and theme
+fviz_cluster(kc, ppcc,
+   palette = "Set2", ggtheme = theme_minimal())
+```
+
+
+```{r}
+100*(kc$betweenss/kc$totss) 
+```
+
+
+## K-means clusters characteristics
+If we want to know the characteristics of each cluster, we need to execute a catdes to obtain these characteristics. In the following output we get them:
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.cat <- catdes(df,20) #the 20th variable of df is claKM
+res.cat
+```
+
+We start wit the description of the categorical variables that characterize the clusters, so in this output we do not have dimensions because it is the total association. We can see the intensity of the variables, in our case the variables that affect more to the clustering are *Tax_pay*, *Age* and *price*.
+
+• Cluster 1:
+  -Every car in this cluster is in the *lowest tax segment*.76% of the cars that pays the less taxes are in this cluster. 94% of the total *Semi nou cars* are in this category, while it contains approximately (44%) half of the *semi nou cars*.73% of the *cheapest cars* are also in this cluster. This explains why this cluster contains a large amount of cars, cars that are majoritarely *manual* (62%). 77% of these cars have been bought *between 2013 and 2016*.
+
+• Cluster 2:
+  -Almost 95% of all the cars in this cluster are in the second *highest tax segment*. Almost all the cars (96%) with the *lowest miles*(0,6) are in this cluster, which explains that the cars in this cluster are almost all *new* (80% of the cars have been bought after 2018). Almost all the *segment A* cars are in this cluster (97%) in addition to the *B category* (77%). This cluster thus contains the *newly bought cars* that are expensive
+
+• Cluster 3:
+  -This car contains the cars that pay the most in *taxes* (75% of them), 85% of the cars in this cluster blong to *cheapest cars* (Segments C and D) which explains why their tax pay is big (as we will see later on in the CA analysis). 42% of the cars in this cluster are in the category of cars with the *most mileage*. This cluster thus contains *old, cheap cars that pay the most taxes*
+
+We can notice that the cluster have been chosen in the basis of the tax segments in addition to the age of these cars. We will later develop this point in the CA analysis to dress a comparaison between age and tax in addition to price and tax
+
+We now proceed to see the quantitative variables that characterizes the clusters.
+• Cluster 1:
+   -The *Tax_pay* is below average by about 90 euros which consolidates our analysis of the categorical variable. The *Years_sell* Mean is slightly above average by half a year, the *mileage* is consequently also higher than the average. The *price* is below average by about 8000 euros with a smaller sd than in other categories.This confirms what we saw in the categorical variables as cars in this category are *getting old, unexpensive and tax economical*.
+• Cluster 2:
+  -The *tax*variable is slightly above average by 24 dollars, *price* is by about 7000 dollars with a big sd which is normal (as the price grows, the sd naturally grows), we  thus expect cars with a really huge price in this category. *Mileage* is below average as well as the *age* variable which confirms what we saw in the categorical variables, cars in this category are *new and expensive but not too tax consuming*.
+• Cluster 3:
+  -the *tax* variable is above average by about 30 dollars, *mileage* is also way above average as well as *years*. *price*is below average by about 6000 dollars. This confirms what we saw with the categorical variables as the cars in this category are *old, cheap and tax consuming*
+
+This accordance between the categorical and continuous variables makes us confirm that these clusters have been assigned based principally on *tax_pay*, *ag*e and *price*
+
+## Comparaison of clusters (confusion table)
+We want to compare the hierarchical clustering, previously done, and the k-means clustering, so proceed to do the following.
+```{r}
+df$hcpck<-res.hcpc$data.clust$clust
+tt<-table(df$hcpck,df$claKM)
+tt
+```
+
+In order to have a better visualization of the table we add names to the columns and the rows:
+
+```{r}
+
+df$hcpck<-factor(df$hcpck,labels=c("kHP-1","kHP-2","kHP-3","kHP-4")) 
+df$claKM<- factor(df$claKM,levels=c(1,2,3),labels=c("kKM-1","kKM-2","kKM-3"))
+tt<-table(df$hcpck,df$claKM); tt
+```
+
+```{r}
+100*sum(diag(tt)/sum(tt))
+```
+We have a concordance of 27% between the two ways of clustering which is not really good
+
+
+
+# CA analysis
+
+CA analysis for your data should contain your factor version of the numeric target (previous) in K=5 (variable aux_price created before) levels and 2 factors:
+
+We set the numeric variable as the price of the car
+
+With the price factor, we proceed to create a variable that associates the price with different factors such as tax price (f.tax), engineSize and Years_Sell. For each of these variables, we create a contingency table and look up for correlations and links between the different categories of these variables.
+
+## Price vs f.Tax
+
+```{r}
+tt<-table(df[,c("f.price","f.tax")]);tt
+```
+
+
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1),ylim=c(-0.25,0.25),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.tax")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$f.tax))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+The majority of the expensive cars (Segment A and B) are new and more environment friendly thanks to new technologies, they consequently have  a less expensive tax price . Cheapest cars(Segment D),  have a small mpg and have thus the least tax price (<145).  We can't give additional informations about the Segment C as there is no tax category that is really near it. .
+
+
+```{r}
+summary_price_tax<-summary(res.ca)$call
+```
+
+
+We can see from the summary is that we have a chi square statistic of  2659.613, great enough to reject the H0, which means the intensity of the relation between tax and price is high. If we take a look at the variances from the different dimensions, we can see that all together sum more than 1.
+
+## Price vs EngineSize
+
+```{r}
+tt<-table(df[,c("f.price","engineSize")]);tt
+```
+
+
+We want to see if the rows and columns are independents, we will do a p-value test
+ H0: Rows and columns are independent
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1),ylim=c(-0.25,0.25),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.engineSize")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$engineSize))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+We can see in the plot,  that the category "Gran" corresponding to big engines belongs to the summum of highest price category (Segment A), while the smaller engines "MITJÀ" are  cheaper  (Segment A and Segment B). The smallest engines belong to the bottom of the cheapest category (Segment D). All these results seems logical and follow the cars' distribution of prices we know 
+
+```{r}
+summary_price_enginesize<-summary(res.ca)$eigenvalues
+```
+
+We can see from the summary is that we have a chi square statistic of 1155.745, great enough to reject the H0 hypothesis, which means the intensity of the relation is high. If we take a look at the variances from the different dimensions, we can see that all together sum is 1.
+
+```{r}
+mean(res.ca$eig[,1]) 
+```
+Following the kaiser criteria and the value got in the output, we should retain dimensions with a variance greater than  0.116062. In this case, the first dimension fulfills this because its variance is 0.419, but it is not enough to work with data so, we would choose 2 dimensions for this case.
+
+## Price vs Years-sell
+
+```{r}
+tt<-table(df[,c("f.price","years_sell")]);tt
+```
+
+```{r}
+chisq.test(tt, simulate.p.value = TRUE) 
+```
+
+We get a p-value smaller than 0.05 so we can deny the H0 hypothesis. There is thus a link between the columns and the rows
+We are now going to take a look to the simple correspondences.
+
+```{r}
+res.ca <- CA(tt)
+```
+
+```{r}
+plot(res.ca$row$coord[,1],res.ca$row$coord[,2],pch=19,col="blue",xlim=c(-1,1.5),ylim=c(-0.3,1.3),xlab="Axis 1",ylab="Axis 2", main="CA f.price vs f.years_sell")
+points(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+text(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue",labels=levels(df$f.price))
+text(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red",labels=levels(df$years_sell))
+lines(res.ca$row$coord[,1],res.ca$row$coord[,2],lwd=2,col="blue")
+lines(res.ca$col$coord[,1],res.ca$col$coord[,2],lwd=2,col="red")
+```
+
+We can see in the plot,  that the category "MOLT NOU" belongs to the highest prices categories (Segment A and Segment B), while the older cars "SEMI NOU" belong to the cheaper categories (Segment C and Segment D). The oldest cars belong to the cheapest category (Segment D).
+
+
+ 
+```{r}
+summary_price_years_sell<-summary(res.ca)$eigenvalues
+```
+
+We can see from the summary is that we have a chi square statistic of 2200.099, great enough to reject the H0 hypothesis, which means the intensity of the relation is high. If we take a look at the variances from the different dimensions, we can see that all together sum more than 1.
+
+We also think that it would be interesting to see the link between age and tax price. This will show us if the manufacturers are doing efforts to respect environment (which would be shown by a diminution of tax price)
+```{r}
+tt<-table(df[,c("f.tax","years_sell")]);tt
+```
+
+```{r}
+res.ca_1 <- CA(tt)
+```
+
+
+```{r}
+plot(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],pch=19,col="blue",xlim=c(-1.5,1.5),ylim=c(-1,1),xlab="Axis 1",ylab="Axis 2", main="CA years sell vs f.tax")
+points(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red")
+text(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],lwd=2,col="blue",labels=levels(df$years_sell))
+text(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red",labels=levels(df$f.tax))
+lines(res.ca_1$row$coord[,1],res.ca_1$row$coord[,2],lwd=2,col="blue")
+lines(res.ca_1$col$coord[,1],res.ca_1$col$coord[,2],lwd=2,col="red")
+```
+We can consequently confirm our hypotesis, new cars are more respectful to the environment (tax price<150) than the old cars
+ 
+
+# MCA analysis
+
+Now we will proceed with the multiple correspondence analysis to analyse all the categorical variables. 
+
+To the analysis of the MCA we will use the variables transmission, fuelTYpe, manufacturer, Audi, years_sell (nou, vell, molt vell), f.price, f.miles and f.tax. The quantitative supplementary variable will be the price one. Teh qualitative variables that will not be used for the computation of MCA will be binary target Audi and factor price.
+
+
+```{r}
+names(df[,c(3,4,6,10,11,13,16,17,18,19)])
+res.mca<-MCA(df[,c(3,4,6,10,11,13,16,17,18,19) ],quali.sup=c(5,7), quanti.sup=1 )
+```
+Variables:
+
+The graphic created by the execution of the function MCA shows us that the Dimension 1 gets 16,5% of the variability and the dimension2 gets 10% of the variability. The supplementary quantitative variable price has more correlation to the dimenison 1 than to the dimension t2. As the Audi variable has been used as a supplementary to the analsis it cas no correlation with the dimensions. We will enter in more tdetail in the next sections. 
+
+
+Individuals and categories:
+
+We will enter in more detail in the analysisi of individuals and categories in the next sections but we can see clearly that there are some varibales and individuals that has a strong correlation with the dimension 2. 
+
+```{r}
+plot.MCA(res.mca,choix=c("ind"),cex=0.8)
+plot.MCA(res.mca,choix=c("ind"),invisible=c("ind"),cex=0.8)
+```
+
+## Eigenvalues and dominant axes analysis. How many axes we have to consider for next Hierarchical Classification stage?
+
+We will use the Kiser criteria to choose the number of axes to be considered. Wee will choose all the dimensions that have a greater eigenvalue than the mean. As the mean is 1428571, we will use the first 7 dimensions to analyze the data. As we can see in the graphic this 7 dimensions accumulate approximately the 60% of the variability. 
+
+```{r}
+mean(res.mca$eig[,1])
+head(get_eigenvalue(res.mca), 10)
+fviz_screeplot(
+  res.mca, 
+  addlabels=TRUE, 
+  ylim=c(0,20), 
+  barfill="darkslateblue", 
+  barcolor="darkslateblue",
+  linecolor="skyblue1"
+)
+```
+
+## Individuals point of view.
+
+### Are they any individuals "too contributive"?
+
+```{r}
+fviz_mca_ind(res.mca, col.ind="contrib", geom = "point") 
+```
+
+In the dimension 1 we can't identify any observations that are too contributive. Otherwise, in the dimension 2 the are several individuals that have much weight in the creation of the second dimension. 
+
+### Are there any groups?
+
+Depending on the qualitative variable used to classify the individuals we can see different types of groups. After proving all of them we have chosen fyelType, years_sell and f.price because are the ones that show more clearly differentiated groups. The first one, fuel Type is strongly related to the dim2. Values higher than 0 are represented by Petrol vehicles, values between 0 and -1 are represented by Diesel vehicles and finally the extreme observations, the ones that are more contributive to the creation of the Dim2 axis are the ones created by Hybrid vehicles.
+
+As we can see the variable years_sell is strongly related to the dimension 1. The newest vehicle sobtain values lower than 0 and the oldest vehicle obtain values higher than 0. 
+
+```{r}
+fviz_mca_ind(res.mca, label="none", habillage="fuelType")
+fviz_mca_ind(res.mca, label="none", habillage="years_sell")
+fviz_mca_ind(res.mca, label="none", habillage="f.price")
+```
+
+
+## Interpreting map of categories: average profile versus extreme profiles (rare categories)
+
+TO analyse the categories in out dataset we will use the following two plots. 
+```{r}
+fviz_mca_var(res.mca, choice="mca.cor", repel=TRUE)
+fviz_mca_var(res.mca, repel=TRUE)
+```
+The first plot shows us the correlation between variables and the two axes defined. 
+
+The first significant observation that we can see is that the variable fuelType has a huge impact on the creation of the second dimension and that it gets 60% of the variability. This matches the results of the previus section where we saw that the cars where distributed in the plot according to their consumption type. The variables f.tax, transmission and manufacturer have a significant impact too. This might be because the type of fuel of a car conditions the type of transmission, the manufacturer and the tax.
+
+The dimension 1 is significantly created by the variables miles, years_sell and f.tax. That makes sense because this variables are related too as we saw in the previus chapters. 
+
+The second plot shows the categories for each of the variables that we have described. Cars with a tax between 125 and 145 and hybrid cars have a very big positive correlation with the dimension 2. The dimension 1 otherwise shows us other relation. For example newest cars are negative correlated to the dimension 1 but positive correlated with cars with very few miles. 
+
+
+## Interpreting the axes association to factor map.
+
+In this part we rank the variables and categories seen in the previus part due to ther correlaiton to the 2 dimensions of the factor map.
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc_1 <- dimdesc(res.mca, axes = c(1,2))#Output in Annex
+```
+
+
+### Dimension 1
+
+#### Quantitative
+
+* Price (-0,6): The only quantitative variable that we have included in our analysis is the price. As we can see it has a strong negative relation with the dimension 1. That means that it will have a positive strong correlation with alll variables that have hight negative values. 
+
+#### Qalitative
+
+We can see that there are 3 variables that have the biggest values. This three are highly positive correlated with the dimension1 but they are very correlated between them too. This means that, for example, how much older is a cad, it has muche more miles and has to pay more taxes.
+
+* years_sell (0,78)
+* f.miles (0,73)
+* f.tax (0,70)
+
+#### Category
+
+The most correlated categories are the ones that are part of the yeats_sell, miles and tax variables. This is shown in the newxt lists where we tank the variables according to their correlation. 
+
+Positive correlated: as we can see old cars have a lot of milages and are cheap (segment-D)
+
+* years_sell=Vell (0.46)
+* f.tax=f.tax-(1,125] (0.60)
+* f.miles=f.miles-(34,323] (0,70)     
+* f.price= Segmento-D (0,62)
+
+Negative correlated: as we can see new cars have less miles and are more expensive than the ones of the previus list.
+
+* years_sell=Molt nou (-0,80)
+* f.tax=f.tax-(145,150] (-0.61)    
+* f.miles=f.miles-[0,6] (-0,70) 
+* f.price=Segmento -  A (-0,57)
+
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc_1[[1]]#Output can be found in the Annex
+```
+
+### Dimension 2
+
+
+#### Quantitative
+
+* Price (0,33): The only quantitative variable that we have included in our analysis is the price. As we can see the correlation with the dimension 2 is less important than the correlation with the dimension 1 but in this case is positive.
+
+#### Qalitative
+
+As we have seen in the previus analysis the variable that has more weight in the second dimension is the variable fuel Type with a value of 0,58. Transmision manufacturer and tax are related too buyt in a less significant way.
+
+* fuelType (0,58)
+
+#### Category
+
+The most correlated categories are the ones that build the fuelType variable.
+
+Positive correlated: Hybrid cars are positive correlated with de dimension and with the category f.tax-(125,145].
+
+* f.tax=f.tax-(125,145] (2.55)
+* fuelType=f.Fuel-Hybrid (1.74)
+
+Negative correlated: diesel and petrol cars are positive related between them but negative related to transmision, manufacturer and tax.
+
+* fuelType=f.Fuel-Diesel (-0.66)
+* fuelType=f.Fuel-Petrol (-1.08)
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc_1[[2]]#Output in Annex
+```
+
+
+## Perform a MCA taking into account also supplementary variables (use all numeric variables) quantitative and/or categorical. How supplementary variables enhance the axis interpretation?
+
+Now we have added to the suplementaru quantitativ e list the 4 quantitative variables (price, mileage, mpg, tax) and we have added to the computation of the MCA the variables AUdi and engineSize.
+
+```{r}
+res.mca<-MCA(df[,c(3,4,5,6,7,8,9,10,11,13,16,17,18,19) ], quanti.sup=c(1,3,5,6), graph = FALSE )
+
+```
+
+
+## Interpreting the axes association to factor map.
+
+In this part we rank the variables and categories seen in the previus part due to ther correlation to the 2 dimensions of the factor map.
+
+We can see that supplementary quantitativa variables are much more related to the first dimension that to the second dimension. Milage and mpg are veri positively related and negative related to price and tax.
+
+The dimension 2 is more correlated to qualitative variables. As we can see engineSize is the variable more related with the dimension 2 but fuel type remains in the top2.
+
+```{r}
+res.desc <- dimdesc(res.mca, axes = c(1,2))
+
+fviz_mca_var(res.mca, choice="quanti.sup")
+fviz_mca_var(res.mca, choice="mca.cor")
+```
+
+
+### Dimension 1
+
+Now we will proceed to analyse variables and categories for dimension 1 with the result of the MCA with all the variables. As we will see adding variables have not changed significantly the creation of this dimension. The amount of variance collected by this dimension is of about 15%.
+
+#### Quantitative
+
+Quantitative variables have high correlation to the dimension 1. Mileage and miles per gallon has a strong positive correlation. Tax and price have a negative correlation with the dimension 1.
+
+* mileage (0.68) 
+* mpg (0.40)
+* tax (-0.57)
+* price (-0.81)
+
+#### Qalitative
+
+We can see that there are 3 variables that have the biggest values. This three are highly positive correlated with the dimension1 but they are very correlated between them too. This means that, for example, how much older is a cad, it has muche more miles and has to pay more taxes. This hasn't changed in relation with the first MCA analysis.
+
+* years_sell (0.67)
+* f.miles (0.61)
+* f.tax (0.64)
+
+#### Category
+
+The most correlated categories are the ones that are part of the price, years, miles and tax variables. This is shown in the next lists where we tank the variables according to their correlation. 
+
+Positive correlated
+
+* f.tax=f.tax-(1,125] (0.66)
+* f.miles=f.miles-(34,323] (0.59)
+* f.price=Segmento-D (0.72)
+
+Negative correlated
+
+* mpg_d=mpg_d-[0,44.8] (-0.61)
+* f.miles=f.miles-[0,6] (-0.62)
+* f.price=Segmento-A (-0.66)
+* years_sell=Molt nou (-0.72)
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc<-res.desc[[1]]# Output Can be found in the annex
+```
+
+### Dimension 2
+
+Now we will proceed to analyse variables and categories for dimension 2 with the result of the MCA with all the variables. As we will see this dimension has absorved themajority of the variance generated by the engineSize variable. The amount of variance collected by this dimension is of about 10%.
+
+#### Quantitative
+
+The quantitative variables have much more correlation to the dimension 1 than to the dimension 2.
+
+* Price (0,33): The only quantitative variable that we have included in our analysis is the price. As we can see the correlation with the dimension 2 is less important than the correlation with the dimension 1 but in this case is positive.
+
+#### Qualitative
+
+The variable guelType remains as the second with more correlation to the second dimension but the engineSize one now is the variable with more correlation. This last one has added some correlation with the manufacturer variable.
+
+* engineSize (0.57)
+* fuelType (0,48)
+* manufacturer (0.40)
+
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.desc[[2]]
+```
+
+# Hierarchical Clustering (from MCA)
+
+In the first section of MCA analysis we said that we would use Kaiser criteria to choose the clusters and this mean that we have to choose the 9 clusters that have greater value than the mean. Otherwise, to reduce the complexity of the problem we have executed the function sevveral times and we have found that 4 clusters is a number that groups observations in significant diferent groups. 
+
+```{r}
+res.hcpcMCA <- HCPC(res.mca,nb.clust = 4, order = TRUE)
+```
+
+## Description of clusters
+
+We have four different clusters that are represented in the previus image.
+
+* Cluster1: represented in color black is more correlated to the dim1 that to the dim2. It is correlated i a negative way. Contains 1653 observations. 
+* Cluster2: represented in color pink is correlated with both dimensions in a approximately equal way and contains 1000 observations.
+* Cluster3: represented in color green is strong positive correlated to dim1 and negative correlated to dim2. COntains 943 observations.
+* Cluster4: represented in color blue is positive correlated to dim1 and positive correlated to dim2.
+
+Although the number of observations of the cluster 1 is higher than the other clusters, the number of observations is distributed equally between them.
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+table(res.hcpcMCA$data.clust$clust) #Output int the res.hcpcMCA$data.clust$clust annex section
+```
+
+### Correlation with categories
+
+When we say that a cluster is correlated with a dimension what we are saying is that this cluster is correlated with the variables correlated with this dimension too. Now we will analyze the most significant correlations with the different categories.
+
+Note: to help interpret the result of the output
+Cla/Mod: % of the individuals who belong to the category and also belong to class 
+Mod/Cla: % of individuals of class that belong to the category
+Global: % of the observations that are part of the category
+
+* **Cluster 1:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car. The representation of the non audi cars is noticable (41%). 
+  + Variable target price: The 73% of the most expensive cars **(f.price=Segmento -  A)** belong to this group. Of all the observations of the cluster a 55% are very expensive. 
+  + Variable tax: 96% of the individuals of the cluster 1 are of the category **f.tax=f.tax-(145,150]**. What is more 50% of the individuals that are of this category belong to this cluster. 
+  + Variable old: 92% of the observations in this cluer are **very young (less than two years old)**. This cluster contains 62% of the newest cars. 
+  + Manufacturer: 56% of the **Mercedes cars** belong to this cluster and they represent a 44% of all the cluster observations. 
+  + Transmission: 62% of the cars in this group are **SemiAuto** and 54% of the SemiAuto cars 
+  + EngineSize: 64% of the observations belong to the category **engineSize=Mitjà**.
+  
+* **Cluster 2:**
+  + Variable target Audi: This cluster contains all the **Audi=Yes**. What is more all the Audi cars belong to this category. This is useful data because this varieable is one of our target variables.
+  + Variable target price: From the point of view of the price of the cars in this cluster we don't get such relevant information. We can see that 25% belong to the cheapest category **(f.price=Segmento -  D)** and a 30% belong to the most expensive  **(f.price=Segmento -  A)**
+  + Variable fuel: more or les 50% of the cars in this group are of the type **fuelType=f.Fuel-Petrol** and the other 50% **fuelType=f.Fuel-Diesel**
+  + Variable old: 45% of the observations in this cluer are **years_sell=Molt nou **. This cluster contains 20% of the newest cars.
+  + EngineSize: 50% of the observations belong to the category **engineSize=Mitjà**.
+  
+* **Cluster 3:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car.
+  + Variable target price: The 43% of the cheapest cars **(f.price=Segmento -  D)** belong to this group. Of all the observations of the cluster a 68% are very expensive. 
+  + Variable fuel: 85% of the cars in this group are of the type **fuelType=f.Fuel-Petrol**.
+  + Manufacturer: 54% of the **VW cars** belong to this cluster and they represent a 90% of all the cluster observations. 
+  + Transmission: 86% of the cars in this group are **transmission=f.Trans-Manual**. 
+  + EngineSize: 95% of the observations belong to the category **engineSize=Mitjà**.
+
+* **Cluster 4:**
+  + Variable target Audi: The first clear observation that we can make is related to our binary target Audi. All the individuals of Cluter 1 are in the category  **Audi=No**. This means that this cluster does not contain any Audi car.
+  + Variable target price: 40% of the observations are from the category **f.price=Segmento -  C** and another 40% are from the category 40% of the observations are from the category **f.price=Segmento -  D**.
+  + Manufacturer: 50% of the **BMW cars** belong to this cluster and they represent a 40% of all the cluster observations. 40% of the **Mercedes cars** belong to this cluster and they represent a 40% of all the cluster observations.
+  + Variable fuel: 85% of the cars in this group are of the type **fuelType=f.Fuel-Diesel**.
+  + Variable old: 91% of the observations in this cluer are not too old**years_sell=Semi nou** (between 3 and 5 years old).
+  + EngineSize: 71% of the observations belong to the category **engineSize=Mitjà**.
+
+```{r , results = 'hide', message=FALSE, ,error=FALSE, warning=FALSE}
+res.hcpcMCA$desc.var$category #Output int the res.hcpcMCA$desc.var$category annex section
+```
+
+
+# Annex
+## Hierarchial clustering
+### Description of cluster by qualitative variables
+```{r}
+quali_var_decription_1
+```
+
+### Description of clusters by quantitative variables
+```{r}
+quanti_var_decription_1
+```
+
+
+## MCA
+### Interpreting the axes association to factor map.
+#### Dimension 1
+
+```{r}
+res.desc_1[[1]]
+```
+
+
+
+#### Dimension 2
+
+```{r}
+res.desc_1[[2]]
+```
+### MCA with all suppementary variables
+#### Interpreting the axes association to factor map.
+##### Dimension 1
+```{r}
+res.desc[[1]]
+```
+
+#### Dimension 2
+```{r}
+res.desc[[2]]
+```
+## Hierarchical Clustering MCA
+### Description of clusters
+#### Correlation with categories
+
+```{r}
+res.hcpcMCA$desc.var$category
+```
+
+
+# Finally, save the data
+```{r}
+save.image("EloiOthman_del2.RData")
+```
